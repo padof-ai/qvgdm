@@ -14,7 +14,7 @@ function showBanned() {
   stopTick(); lastSig = "";
   app.innerHTML = `<div class="brand">Qui veut gagner des applaudissements ?</div><div class="card center"><p class="big">Vous ne participez plus à cette partie</p><p class="dim" style="margin-bottom:0">L'animateur vous a retiré du jeu.</p></div>`;
 }
-let voteShown = {};
+let voteAt = {}, voteT = null;   // when the audience vote result shows (after its music)
 let lastSig = "";          // qid -> true once the vote animation has played
 
 function saveMe(m) { ME = m; try { m ? localStorage.setItem(KEY, JSON.stringify(m)) : localStorage.removeItem(KEY); } catch (e) { } }
@@ -118,7 +118,7 @@ function render(force) {
   if (V.gone) return lost();
   const q = V.q;
   if (V.phase === "question" && q) return renderQuestion();
-  stopTick();
+  stopTick(); stopCall(false); if (mp3El) { mp3El.pause(); mp3El = null; }
   if (V.phase === "intro" && q) {
     app.innerHTML = `<div class="brand">Question ${q.n || ""}</div><div class="card center"><p class="big">${esc(q.label || "Nouvelle question")}</p>
       <p style="margin:10px 0 0"><span class="chip">${ptsTxt(q.points)} en jeu</span></p><p class="dim" style="margin-bottom:0">Préparez-vous : la question arrive !</p></div>${meHTML()}`;
@@ -166,14 +166,16 @@ function renderQuestion() {
   const J = V.settings.jokers || {}, anyJ = !answered && (J.fifty || J.public || J.phone);
   const phoneLeft = q.phoneUntil ? Math.max(0, Math.ceil((q.phoneUntil - (Date.now() + clockOffset)) / 1000)) : 0;
   const showVote = q.vote && !answered;
-  app.innerHTML = `<div class="qhead"><span class="brand" style="text-align:left">Question ${q.n || ""}</span><span class="chip">${ptsTxt(Math.max(0, q.points - Object.values(q.used || {}).filter(Boolean).length * (q.jokerCost || 0)))} en jeu</span><span class="timer" id="tm"></span></div>
+  if (q.vote && !voteAt[q.qid]) voteAt[q.qid] = Date.now() + VOTE_MS;
+  const voteDone = q.vote && Date.now() >= voteAt[q.qid];
+  app.innerHTML = `<div class="qhead"><span class="brand" style="text-align:left">Question ${q.n || ""}</span><span class="chip">${ptsTxt(Math.max(0, q.points - Object.values(q.used || {}).filter(Boolean).length * (q.jokerCost || 0)))} en jeu</span>${soundsWanted() ? `<button class="sndbtn" id="snd" aria-label="${sndOn ? "Couper le son des jokers" : "Activer le son des jokers"}">${sndOn ? "🔊" : "🔇"}</button>` : ""}<span class="timer" id="tm"></span></div>
     <div class="card"><div class="qtext">${esc(q.text)}</div></div>
     ${answered
       ? `<div class="card center"><p class="big">Réponse ${L[q.mine]} enregistrée ✓</p><p class="dim">« ${esc(q.answers[q.mine])} »</p><p style="margin:0">Attendez la révélation sur l'écran…</p></div>`
       : `<div class="answers">${q.answers.map((a, i) => `<button class="ans ${q.gone.includes(i) ? "gone" : ""}" data-a="${i}" ${q.gone.includes(i) ? "disabled" : ""}><span class="L">${L[i]}</span><span>${esc(a)}</span></button>`).join("")}</div>`}
     ${phoneLeft > 0 && !answered ? `<div class="card phone"><span class="lbl">📞 Appel à un ami</span><div class="n" id="ph">${phoneLeft}</div><p class="dim" style="margin:4px 0 0">Demandez de l'aide à quelqu'un… puis répondez !</p></div>` : ""}
-    ${showVote ? `<div class="card"><span class="lbl">👥 Vote du public <span id="vmsg">${voteShown[q.qid] ? "" : "· le public vote…"}</span></span>
-      <div class="vote">${[0, 1, 2, 3].map(i => `<div class="vcol" style="${q.gone.includes(i) ? "opacity:.3" : ""}"><span data-pc="${i}">${voteShown[q.qid] ? q.vote[i] + " %" : "?"}</span><div class="vbar" data-bar="${i}" style="height:${voteShown[q.qid] ? q.vote[i] * 1.2 : 4}px"></div><b>${L[i]}</b></div>`).join("")}</div></div>` : ""}
+    ${showVote ? `<div class="card"><span class="lbl">👥 Vote du public <span id="vmsg">${voteDone ? "" : "· le public vote…"}</span></span>
+      <div class="vote">${[0, 1, 2, 3].map(i => `<div class="vcol" style="${q.gone.includes(i) ? "opacity:.3" : ""}"><span data-pc="${i}">${voteDone ? q.vote[i] + " %" : "?"}</span><div class="vbar" data-bar="${i}" style="height:${voteDone ? q.vote[i] * 1.2 : 4}px"></div><b>${L[i]}</b></div>`).join("")}</div></div>` : ""}
     ${anyJ ? `<div class="jokers">
       ${J.fifty ? `<button class="joker" data-j="fifty" ${q.avail.fifty ? "" : "disabled"} aria-label="Joker 50:50">50:50</button>` : ""}
       ${J.public ? `<button class="joker" data-j="public" ${q.avail.public ? "" : "disabled"} aria-label="Joker vote du public">${ICON_PUBLIC}</button>` : ""}
@@ -182,34 +184,101 @@ function renderQuestion() {
     ${meHTML()}`;
   app.querySelectorAll("[data-a]").forEach(b => b.onclick = () => answer(+b.dataset.a, b));
   app.querySelectorAll("[data-j]").forEach(b => b.onclick = () => joker(b.dataset.j, b));
-  if (showVote && !voteShown[q.qid]) {
-    voteShown[q.qid] = true;
-    setTimeout(() => {
+  if ($("#snd")) $("#snd").onclick = () => { sndOn = !sndOn; try { localStorage.setItem("qvgda_snd", sndOn ? "1" : "0"); } catch (e) { } if (sndOn) audioUnlock(); else stopCall(false); render(true); };
+  clearTimeout(voteT);
+  if (showVote && !voteDone) {
+    voteT = setTimeout(() => {
       app.querySelectorAll("[data-bar]").forEach(b => b.style.height = q.vote[+b.dataset.bar] * 1.2 + "px");
       app.querySelectorAll("[data-pc]").forEach(s => s.textContent = q.vote[+s.dataset.pc] + " %");
       const m = $("#vmsg"); if (m) m.textContent = "";
-    }, 2500);
+    }, voteAt[q.qid] - Date.now());
   }
   stopTick();
   const upd = () => {
     const t = Date.now() + clockOffset;
     const el = $("#tm");
     if (el && q.deadline) { const s = Math.max(0, Math.ceil((q.deadline - t) / 1000)); el.textContent = s + " s"; el.classList.toggle("low", s <= 5); }
-    const ph = $("#ph"); if (ph && q.phoneUntil) { const s = Math.max(0, Math.ceil((q.phoneUntil - t) / 1000)); ph.textContent = s; if (!s) render(true); }
+    const ph = $("#ph"); if (ph && q.phoneUntil) { const s = Math.max(0, Math.ceil((q.phoneUntil - t) / 1000)); ph.textContent = s; if (!s) { stopCall(true); render(true); } }
   };
   upd(); tick = setInterval(upd, 250);
 }
 async function answer(i, btn) {
   if (V.q.mine != null) return;
   app.querySelectorAll("[data-a]").forEach(b => b.disabled = true); btn.classList.add("sel");
+  stopCall(true);                                   // answering ends the phone call
   try { navigator.vibrate && navigator.vibrate(25); } catch (e) { }
   const r = await api("/api/answer", { pid: ME.pid, token: ME.token, qid: V.q.qid, choice: i }).catch(() => ({ ok: false, error: "Réseau indisponible : réessayez." }));
   if (!r.ok) { toast(r.error || "Réponse refusée."); render(true); }
 }
 async function joker(k, btn) {
   btn.disabled = true;
-  const r = await api("/api/joker", { pid: ME.pid, token: ME.token, qid: V.q.qid, kind: k }).catch(() => ({ ok: false, error: "Réseau indisponible : réessayez." }));
-  if (!r.ok) { toast(r.error || "Joker indisponible."); btn.disabled = false; }
+  audioUnlock();                                    // must happen during the tap (mobile browsers)
+  const qid = V.q.qid;
+  const r = await api("/api/joker", { pid: ME.pid, token: ME.token, qid, kind: k }).catch(() => ({ ok: false, error: "Réseau indisponible : réessayez." }));
+  if (!r.ok) { toast(r.error || "Joker indisponible."); btn.disabled = false; return; }
+  jokerSound(k, qid);
+}
+
+/* --------------------------------------------------- joker sounds (on the phone) */
+// Synthesized like on the projected screen; an MP3 put in public/sounds (joker-5050.mp3, joker-public.mp3, joker-phone.mp3) replaces them.
+const VOTE_MS = 5000;
+let AC = null, sndOn = (() => { try { return localStorage.getItem("qvgda_snd") !== "0"; } catch (e) { return true; } })();
+const soundsWanted = () => V && V.settings && V.settings.jokerSounds !== false && Object.values(V.settings.jokers || {}).some(Boolean);
+function audioUnlock() {
+  if (!sndOn || !soundsWanted()) return;
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { }   // iPhone: play even with the silent switch
+  try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) { }
+}
+function tone(f, t0, dur, type = "sine", vol = .2, glide) {
+  const c = AC; if (!c) return; const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + t0; o.type = type; o.frequency.setValueAtTime(f, t);
+  if (glide) o.frequency.exponentialRampToValueAtTime(glide, t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + .05);
+}
+function noise(t0, dur, vol = .15, freq = 1200) {
+  const c = AC; if (!c) return; const b = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = c.createBufferSource(); s.buffer = b; const f = c.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; const g = c.createGain(), t = c.currentTime + t0;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur); s.connect(f).connect(g).connect(c.destination); s.start(t);
+}
+const JSND = {
+  fifty() { tone(880, 0, .15, "sine", .18, 440); tone(440, .18, .3, "sine", .15, 220); noise(.05, .35, .08, 2500); },
+  // the audience votes: ~5 s, the result appears with the final chord
+  public() { for (let i = 0; i < 18; i++) tone(i % 4 === 0 ? 880 : 660, i * .25, .08, "triangle", .08);
+    tone(196, 0, 4.4, "sine", .07); tone(247, 1.5, 2.9, "sine", .06); tone(294, 3, 1.4, "sine", .06);
+    [523, 659, 784].forEach((f, i) => tone(f, 4.5 + i * .06, .9, "triangle", .16)); },
+  // 10 DTMF digits then 2 French ring tones
+  dial() { const D = { "1": [697, 1209], "2": [697, 1336], "3": [697, 1477], "4": [770, 1209], "5": [770, 1336], "6": [770, 1477], "7": [852, 1209], "8": [852, 1336], "9": [852, 1477], "0": [941, 1336] };
+    let t = 0; for (const d of "06" + String(Math.floor(Math.random() * 1e8)).padStart(8, "0")) { const [a, b] = D[d]; tone(a, t, .1, "sine", .1); tone(b, t, .1, "sine", .1); t += .16; }
+    t += .5; for (let r = 0; r < 2; r++) { tone(440, t, 1.2, "sine", .14); t += r ? 1.2 : 2.4; } return t + .2; },
+  hold() { [523, 659, 784, 659, 587, 698, 880, 698].forEach((f, i) => tone(f, i * .3, .26, "triangle", .08)); tone(131, 0, 1.2, "sine", .08); tone(147, 1.2, 1.2, "sine", .08); return 2.4; },
+  hangup() { noise(0, .06, .25, 900); for (let i = 0; i < 3; i++) tone(440, .35 + i * .5, .25, "sine", .13); }
+};
+const MP3 = { fifty: "joker-5050", public: "joker-public", phone: "joker-phone" };
+let mp3El = null, call = null;
+function playFile(k, loop) {
+  const have = (V.settings.jokerFiles || []).includes(MP3[k]); if (!have) return null;
+  const a = new Audio(`/sounds/${MP3[k]}.mp3`); a.loop = !!loop; a.play().catch(() => { }); return a;
+}
+function jokerSound(k, qid) {
+  if (!sndOn || !soundsWanted()) return;
+  audioUnlock();
+  if (k === "fifty") { if (!playFile("fifty")) JSND.fifty(); }
+  if (k === "public") { mp3El = playFile("public"); if (!mp3El) JSND.public(); }
+  if (k === "phone") {
+    stopCall(false);
+    const c = call = { qid, timers: [], audio: null };
+    const d = JSND.dial() * 1000;
+    c.timers.push(setTimeout(() => {           // after the rings: waiting music until the end of the call
+      if (call !== c) return;
+      c.audio = playFile("phone", true);
+      if (!c.audio) { const loop = () => { if (call === c) { JSND.hold(); c.timers.push(setTimeout(loop, 2400)); } }; loop(); }
+    }, d));
+  }
+}
+function stopCall(hangup) {
+  if (!call) return; const c = call; call = null;
+  c.timers.forEach(clearTimeout); if (c.audio) { c.audio.pause(); c.audio = null; }
+  if (hangup && sndOn) JSND.hangup();
 }
 
 /* ------------------------------------------------------------------- boot */

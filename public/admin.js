@@ -40,6 +40,7 @@ function normalizeConfig(c){
   o.avatarLib=Array.isArray(c&&c.avatarLib)?c.avatarLib.filter(x=>x&&x.id).map(x=>({id:String(x.id),name:String(x.name||"")})):[];
   o.autoLib=!(c&&c.autoLib===false);
   o.tieSpeed=!(c&&c.tieSpeed===false);
+  o.jokerSounds=!(c&&c.jokerSounds===false);
   o.basePoints=Math.max(1,+o.basePoints||3); o.jokerCost=Math.max(0,o.jokerCost==null?1:+o.jokerCost);
   o.questions=Array.isArray(o.questions)?o.questions.map(q=>({id:q.id||uid("q"),text:String(q.text||""),answers:[0,1,2,3].map(i=>String((q.answers||[])[i]||"")),
     correct:Math.min(3,Math.max(0,+q.correct||0)), label:String(q.label||""), note:String(q.note||""),
@@ -264,7 +265,7 @@ async function admin(action, extra){
   if(r.unauthorized){ ADMIN_KEY=""; try{ localStorage.removeItem(KEY_ADMIN); }catch(e){} renderLogin("Mot de passe incorrect ou modifié."); }
   return r;
 }
-function serverSettings(){ return { jokers:CFG.jokers, jokerScope:CFG.jokerScope, phoneSec:CFG.phoneSec, autoClose:CFG.autoClose, tieSpeed:CFG.tieSpeed }; }
+function serverSettings(){ return { jokers:CFG.jokers, jokerScope:CFG.jokerScope, phoneSec:CFG.phoneSec, autoClose:CFG.autoClose, tieSpeed:CFG.tieSpeed, jokerSounds:CFG.jokerSounds }; }
 let syncT; function syncSettings(){ clearTimeout(syncT); syncT=setTimeout(()=>{ if(connected) admin("settings",{settings:serverSettings()}); },200); }
 
 /* ---------------------------------------------------------------- login */
@@ -591,7 +592,7 @@ function mediaHTML(q,revealed){
   if(q.imgMode==="answers" && q.aImgs.some(id=>IMG[id])){
     return `<div class="qmedia single grid"><div class="qimgs">${[0,1,2,3].map(i=>{ const src=IMG[q.aImgs[i]];
       const c=revealed?(i===q.correct?"good":"gone"):"";
-      return src?`<button class="qimg ${c}" data-zoom="${esc(src)}" aria-label="Agrandir l'illustration de la réponse ${L[i]}"><img src="${esc(src)}" alt=""><span class="L">${L[i]}</span></button>`
+      return src?`<button class="qimg ${c}" data-zoom="${esc(src)}" aria-label="Agrandir l'illustration de la réponse ${L[i]}"><img class="qblur" src="${esc(src)}" alt=""><img class="qmain" src="${esc(src)}" alt=""><span class="L">${L[i]}</span></button>`
                 :`<div class="qimg ${c}" style="cursor:default"><span class="L">${L[i]}</span></div>`; }).join("")}</div></div>`;
   }
   return "";
@@ -602,7 +603,7 @@ function fitQuestionImage(){
   const med=$(".qmedia.single",sec), top=$(".qtop",sec); if(!med) return;
   const grid=med.classList.contains("grid");
   const box=grid?$(".qimgs",med):$(".qimg.one",med); if(!box) return;
-  const imgs=[...box.querySelectorAll("img")];
+  const imgs=[...box.querySelectorAll("img:not(.qblur)")];
   const waiting=imgs.filter(i=>!i.naturalWidth); if(waiting.length){ waiting.forEach(i=>i.addEventListener("load",fitQuestionImage,{once:true})); return; }
   sec.classList.remove("overlay");
   const B=6, GAP=grid?Math.round(Math.max(10,Math.min(20,innerHeight*.016))):0;
@@ -623,12 +624,22 @@ function fitQuestionImage(){
     if(blockH(hOver)>blockH(best)+24){ best=hOver; over=true; }
   }
   if(over){ sec.classList.add("overlay"); /* .qtop leaves the flow: measure again */ box.style.top=`${Math.max(0,top.getBoundingClientRect().top-med.getBoundingClientRect().top)+6}px`; } else box.style.top="8px";
-  if(grid){
-    const ch=Math.round(best), cw=Math.round(best*a);
-    box.style.gap=`${GAP}px`;
-    box.querySelectorAll(".qimg").forEach(c=>{ c.style.width=cw+2*B+"px"; c.style.height=ch+2*B+"px"; });
-    imgs.forEach(i=>{ i.style.width="100%"; i.style.height="100%"; });
-  } else imgs[0].style.height=Math.round(best)+"px";
+  const apply=h=>{
+    if(grid){
+      const ch=Math.round(h), cw=Math.round(h*a);
+      box.style.gap=`${GAP}px`;
+      box.querySelectorAll(".qimg").forEach(c=>{ c.style.width=cw+2*B+"px"; c.style.height=ch+2*B+"px"; });
+      imgs.forEach(i=>{ i.style.width="100%"; i.style.height="100%"; });
+    } else imgs[0].style.height=Math.round(h)+"px";
+  };
+  apply(best);
+  // never hidden: the pictures must end above the question (the layout can move when the top bar leaves the flow)
+  for(let k=0;k<3;k++){
+    const zone=$(".qzone",sec); if(!zone) break;
+    const over=box.getBoundingClientRect().bottom-(zone.getBoundingClientRect().top-6);
+    if(over<=1) break;
+    best=Math.max(grid?30:50, best-(grid?over/2:over)-1); apply(best);
+  }
 }
 addEventListener("resize",()=>{ if(screen==="question") fitQuestionImage(); });
 // the banner, counters, picks or buttons can change size after the first fit: fit again (once per frame)
@@ -644,6 +655,10 @@ function watchQuestionLayout(){
     if(changed && !qRaf) qRaf=requestAnimationFrame(()=>{ qRaf=0; if(screen==="question" && document.contains(sec)) fitQuestionImage(); else if(qObs) qObs.disconnect(); });
   });
   [$(".qtop .players",sec),$(".qtop .stake",sec),$(".qzone",sec),$(".qfoot",sec)].filter(Boolean).forEach(el=>qObs.observe(el));
+  // entrance animations move things without resizing them: fit again once they are over
+  const later=()=>{ if(!qRaf) qRaf=requestAnimationFrame(()=>{ qRaf=0; if(screen==="question" && document.contains(sec)) fitQuestionImage(); }); };
+  sec.addEventListener("animationend",later); sec.addEventListener("transitionend",later);
+  [400,1000].forEach(t=>setTimeout(later,t));
 }
 let timerInt=null;
 function renderQuestion(){
@@ -841,6 +856,7 @@ function cfgGeneral(b){
     <label class="chk"><input type="checkbox" data-k="jokers.public"> Joker vote du public : affiche un vote simulé selon la difficulté de la question</label>
     <div class="row" style="gap:16px;margin-bottom:10px"><label class="chk" style="margin:0"><input type="checkbox" data-k="jokers.phone"> Joker appel à un ami : lance un compte à rebours sur le téléphone</label>
       <span class="row" style="gap:6px"><label class="flab" for="g10">Durée de l'appel (secondes)</label><input class="inp" id="g10" type="number" min="5" max="180" data-k="phoneSec" style="width:80px"></span></div>
+    <label class="chk"><input type="checkbox" data-k="jokerSounds"> Jouer la musique des jokers sur le téléphone du joueur qui l'utilise (50:50, vote du public, appel à un ami avec numérotation, attente et raccrochage)</label>
     <div class="f" style="max-width:520px"><label for="g11">Chaque joker est utilisable</label><select id="g11" data-k="jokerScope"><option value="game">une seule fois par joueur pendant toute la partie (comme à la télévision)</option><option value="question">à chaque question</option></select></div>
     <p style="font-size:13px;color:var(--cfg-dim);margin:0 0 12px">Avec le barème par défaut, une bonne réponse obtenue avec les 3 jokers rapporte ${ptsTxt(pointsFor(3))}.</p>
     </div>`;
@@ -989,9 +1005,15 @@ function cropEditor(src,prev,ratioKey,title,force){
     pk.addEventListener("keydown",e=>{ if(e.key==="Escape"){ e.stopPropagation(); done(null); } });
   });
 }
-function thumbHTML(id,attr,label,extra=""){ const src=IMG[id];
+function thumbHTML(id,attr,label,extra="",cropped=false){ const src=IMG[id];
   return `<span class="row" style="gap:4px;flex-wrap:nowrap"><label class="thumb ${src?"has":""} ${extra}" style="${src?`background-image:url('${esc(src)}')`:""}" title="${esc(label)}">${src?"":"📷"}<input type="file" accept="image/*" ${attr} aria-label="${esc(label)}"></label>
-    ${src?`<button class="cb sm" ${attr.replace("data-","data-crop-")} title="Recadrer" aria-label="Recadrer : ${esc(label)}">✂ Recadrer</button><button class="cb sm dan" ${attr.replace("data-","data-rm-")} aria-label="Retirer : ${esc(label)}">✕</button>`:""}</span>`; }
+    ${src?`${cropped?`<span class="crstate cut" title="Cette photo a été recadrée">recadrée</span><button class="cb sm" ${attr.replace("data-","data-full-")} title="Revenir à la photo d'origine, affichée en entier">↺ Image entière</button>`:`<span class="crstate" title="La photo est affichée en entier sur la question">✓ entière</span>`}<button class="cb sm" ${attr.replace("data-","data-crop-")} title="Recadrer" aria-label="Recadrer : ${esc(label)}">✂ Recadrer</button><button class="cb sm dan" ${attr.replace("data-","data-rm-")} aria-label="Retirer : ${esc(label)}">✕</button>`:""}</span>`; }
+// back to the original picture, shown whole (slot -1 = the question's photo, 0..3 = answers)
+function uncrop(q,slot){
+  if(slot<0){ if(!q.imgOrig) return false; const cut=q.img; q.img=q.imgOrig; q.imgOrig=null; q.imgCrop=null; removeImage(cut); return true; }
+  if(!q.aOrig[slot]) return false; const cut=q.aImgs[slot]; q.aImgs[slot]=q.aOrig[slot]; q.aOrig[slot]=null; q.aCrop[slot]=null; removeImage(cut); return true;
+}
+const croppedCount=()=>CFG.questions.reduce((n,q)=>n+(q.imgOrig?1:0)+q.aOrig.filter(Boolean).length,0);
 function ptsHint(q){ const nj=(CFG.jokers.fifty?1:0)+(CFG.jokers.public?1:0)+(CFG.jokers.phone?1:0);
   return `Bonne réponse : ${[0,1,2,3].slice(0,nj+1).map(j=>`${pointsFor(j,q)}${j?` avec ${j} joker${j>1?"s":""}`:" sans joker"}`).join(", ")}. Champs vides = valeurs par défaut de l'onglet Général.`; }
 const builtinFor = () => (typeof DEFAULT_MEDIA_FOR!=="undefined"?DEFAULT_MEDIA_FOR:{});
@@ -999,13 +1021,14 @@ function cfgQuestions(b){
   const L="ABCD";
   const bf=builtinFor(), missing=CFG.questions.filter(q=>bf[q.id] && IMG[bf[q.id]] && !(q.imgMode==="single"&&q.img===bf[q.id]));
   b.innerHTML=`${missing.length?`<div class="ccard" style="border-color:var(--gold);display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">🖼️ ${missing.length} illustration${missing.length>1?"s":""} proposée${missing.length>1?"s":""} pour ces questions ne ${missing.length>1?"sont":"est"} pas encore utilisée${missing.length>1?"s":""}.</span><button class="cb pri" id="qBuiltin">Ajouter les illustrations proposées</button></div>`:""}
+  ${croppedCount()?`<div class="ccard" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">✂ ${croppedCount()} illustration${croppedCount()>1?"s sont recadrées":" est recadrée"}. Sans recadrage, chaque photo est affichée <b>en entier</b> sur la question, à la plus grande taille possible.</span><button class="cb pri" id="qUncropAll">↺ Afficher toutes les photos en entier</button></div>`:""}
   <p style="margin:0 0 12px;color:var(--cfg-dim)">${CFG.questions.length} question${CFG.questions.length>1?"s":""}. Donnez un nom au bouton du tableau des scores, cochez la bonne réponse, réglez les points en jeu, choisissez la difficulté (elle détermine le résultat du vote du public). La bonne réponse n'est jamais envoyée aux téléphones avant la révélation.</p>
   ${CFG.questions.map((q,i)=>`<div class="ccard qitem" data-q="${q.id}"><div class="qnum">${i+1}</div><div>
     <div class="f" style="max-width:420px"><label for="ql${i}">Nom du bouton (tableau des scores)</label><input class="inp" id="ql${i}" data-qlabel value="${esc(q.label)}" placeholder="${esc(qLabel(Object.assign({},q,{label:""})))}"></div>
     <div class="f"><label for="qt${i}">Question</label><textarea id="qt${i}" data-qf="text" rows="2">${esc(q.text)}</textarea></div>
     <div class="f"><label for="qn${i}">Rebond pour l'animateur (affiché après la révélation de la réponse)</label><textarea id="qn${i}" data-qnote rows="2" placeholder="Ex. : Diapositive 8 – ouvrir le PowerPoint et présenter l'organisation…">${esc(q.note)}</textarea></div>
     ${q.answers.map((a,j)=>`<div class="arow"><b>${L[j]}</b><input type="radio" name="c_${q.id}" value="${j}" ${q.correct===j?"checked":""} aria-label="${L[j]} est la bonne réponse" title="Bonne réponse"><input class="inp" data-qa="${j}" value="${esc(a)}" aria-label="Réponse ${L[j]}">
-      ${q.imgMode==="answers"?thumbHTML(q.aImgs[j],`data-ai="${j}"`,`Photo de la réponse ${L[j]}`):"<span></span>"}</div>`).join("")}
+      ${q.imgMode==="answers"?thumbHTML(q.aImgs[j],`data-ai="${j}"`,`Photo de la réponse ${L[j]}`,"",!!q.aOrig[j]):"<span></span>"}</div>`).join("")}
     <div class="qmeta"><label class="flab" for="qp${i}">Points en jeu</label><input class="inp" id="qp${i}" data-qpts type="number" min="0" max="1000" style="width:110px" value="${q.points??""}" placeholder="${+CFG.basePoints||3} (défaut)">
       <label class="flab" for="qj${i}" style="margin-left:8px">Points perdus par joker</label><input class="inp" id="qj${i}" data-qjc type="number" min="0" max="1000" style="width:110px" value="${q.jokerCost??""}" placeholder="${+CFG.jokerCost||0} (défaut)"></div>
     <div class="qmeta" style="margin-top:2px"><span class="hint" style="font-size:13px;color:var(--cfg-dim)" data-qpts-hint>${ptsHint(q)}</span></div>
@@ -1013,10 +1036,12 @@ function cfgQuestions(b){
       ${[[1,"1 – Facile : le public est quasi unanime"],[2,"2 – Moyenne : le public penche nettement"],[3,"3 – Difficile : le public hésite"],[4,"4 – Très difficile : le public peut se tromper"]].map(([v,l])=>`<option value="${v}" ${q.difficulty===v?"selected":""}>${l}</option>`).join("")}</select></div>
     <div class="qmeta"><label class="flab" for="qm${i}">Illustration</label><select id="qm${i}" data-qmode>
       <option value="none" ${q.imgMode==="none"?"selected":""}>Aucune</option><option value="single" ${q.imgMode==="single"?"selected":""}>Une photo pour toute la question</option><option value="answers" ${q.imgMode==="answers"?"selected":""}>Une photo par proposition (2 × 2)</option></select>
-      ${q.imgMode==="single"?thumbHTML(q.img,`data-qi`,"Photo de la question","bigthumb"):""}
-      ${q.imgMode==="answers"?`<span style="font-size:13px;color:var(--cfg-dim)">Cliquez sur les vignettes à droite de chaque proposition. Astuce : recadrez les 4 photos au même format pour une grille harmonieuse.</span>${q.aImgs.filter(id=>IMG[id]).length>1?`<button class="cb sm" data-cropall>✂ Recadrer les 4 au même format…</button>`:""}`:""}</div>
+      ${q.imgMode==="single"?thumbHTML(q.img,`data-qi`,"Photo de la question","bigthumb",!!q.imgOrig):""}
+      ${q.imgMode==="answers"?`<span style="font-size:13px;color:var(--cfg-dim)">Cliquez sur les vignettes à droite de chaque proposition. Les 4 photos s'affichent toujours en entier, à la même taille ; les bords sont complétés automatiquement par la photo floutée.</span>${q.aImgs.filter(id=>IMG[id]).length>1?`<button class="cb sm" data-cropall>✂ Recadrer les 4 au même format…</button>`:""}`:""}</div>
     <div class="qmeta"><button class="cb sm" data-mv="-1">Monter</button><button class="cb sm" data-mv="1">Descendre</button><button class="cb sm" data-sh>Mélanger les réponses</button><button class="cb sm dan" data-del>Supprimer</button></div></div></div>`).join("")||`<div class="empty">Aucune question. Ajoutez la première.</div>`}
   <div class="row"><button class="cb pri" id="qAdd">+ Ajouter une question</button></div>`;
+  $("#qUncropAll",b)&&($("#qUncropAll",b).onclick=async()=>{ if(!await ask("Revenir aux photos d'origine pour toutes les questions ? Chaque photo sera affichée en entier sur la question.",{ok:"Tout afficher en entier"})) return;
+    let n=0; CFG.questions.forEach(q=>{ if(uncrop(q,-1)) n++; [0,1,2,3].forEach(j=>{ if(uncrop(q,j)) n++; }); }); saveCfg(); toast(`${n} photo${n>1?"s":""} affichée${n>1?"s":""} en entier`); cfgQuestions(b); });
   b.querySelectorAll("[data-q]").forEach(card=>{
     const q=CFG.questions.find(x=>x.id===card.dataset.q), i=()=>CFG.questions.indexOf(q);
     card.querySelector("[data-qf]").oninput=e=>{ q.text=e.target.value; saveCfg(); };
@@ -1036,6 +1061,8 @@ function cfgQuestions(b){
     const qi=card.querySelector("input[data-qi]"); qi&&(qi.onchange=e=>{ const olds=[q.img,q.imgOrig]; up(e.target.files[0],id=>{ q.img=id; q.imgOrig=null; q.imgCrop=null; olds.forEach(removeImage); }); });
     const rq=card.querySelector("[data-rm-qi]"); rq&&(rq.onclick=()=>{ const olds=[q.img,q.imgOrig]; q.img=null; q.imgOrig=null; q.imgCrop=null; saveCfg(); olds.forEach(removeImage); cfgQuestions(b); });
     const cq=card.querySelector("[data-crop-qi]"); cq&&(cq.onclick=()=>recrop(q,-1,null).then(ok=>ok&&cfgQuestions(b)));
+    const fq=card.querySelector("[data-full-qi]"); fq&&(fq.onclick=()=>{ if(uncrop(q,-1)){ saveCfg(); toast("Photo affichée en entier"); cfgQuestions(b); } });
+    card.querySelectorAll("[data-full-ai]").forEach(btn=>btn.onclick=()=>{ if(uncrop(q,+btn.dataset.fullAi)){ saveCfg(); toast("Photo affichée en entier"); cfgQuestions(b); } });
     card.querySelectorAll("[data-mv]").forEach(btn=>btn.onclick=()=>{ const a=i(), z=a+ +btn.dataset.mv; if(z<0||z>=CFG.questions.length) return; [CFG.questions[a],CFG.questions[z]]=[CFG.questions[z],CFG.questions[a]]; saveCfg(); cfgQuestions(b); });
     card.querySelector("[data-sh]").onclick=()=>{ const ord=shuffle([0,1,2,3]); q.answers=ord.map(k=>q.answers[k]); q.aImgs=ord.map(k=>q.aImgs[k]); q.correct=ord.indexOf(q.correct); saveCfg(); cfgQuestions(b); };
     card.querySelector("[data-del]").onclick=async()=>{ if(await ask("Supprimer cette question ?",{ok:"Supprimer"})){ CFG.questions.splice(i(),1); saveCfg(); cfgQuestions(b);} };

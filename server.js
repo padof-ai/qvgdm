@@ -37,7 +37,7 @@ function freshState() {
   return {
     gameId: rid(6),
     players: new Map(),            // pid -> {pid, token, name, avatar, joinedAt, jokersUsed:{fifty,public,phone}}
-    settings: { jokers: { fifty: true, public: true, phone: false }, jokerScope: "game", phoneSec: 30, autoClose: true, tieSpeed: true },
+    settings: { jokers: { fifty: true, public: true, phone: false }, jokerScope: "game", phoneSec: 30, autoClose: true, tieSpeed: true, jokerSounds: true },
     phase: "lobby",                // lobby | intro | question | closed | revealed | results | credits
     cur: null,                     // current question (with the correct answer, never sent to players before reveal)
     results: {},                   // qid -> {label, correct, at, rows: {pid -> {choice, ok, points, ms, jokers}}}
@@ -119,7 +119,7 @@ function playerView(pid, sc) {
   const p = G.players.get(pid); if (!p) return { gone: true, gameId: G.gameId };
   sc = sc || scores(); const me = sc.byPid[pid] || { points: 0, rank: sc.list.length, good: 0, ms: 0, tied: 0 };
   const v = { gameId: G.gameId, me: { ...publicPlayer(p), points: me.points, rank: me.rank, good: me.good, of: sc.list.length, ms: me.ms, tied: me.tied },
-    phase: G.phase, screen: G.show.screen, settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false } };
+    phase: G.phase, screen: G.show.screen, settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false, jokerSounds: G.settings.jokerSounds !== false, jokerFiles: JOKER_FILES } };
   if (G.cur && ["intro", "question", "closed", "revealed"].includes(G.phase)) {
     const a = G.cur.answers_by[pid] || G.cur.jokerOnly[pid] || null;
     const usedHere = (a && a.jokers) || {};
@@ -261,6 +261,7 @@ function applySettings(s) {
   G.settings.phoneSec = Math.max(5, Math.min(180, +s.phoneSec || 30));
   G.settings.autoClose = s.autoClose !== false;
   G.settings.tieSpeed = s.tieSpeed !== false;
+  G.settings.jokerSounds = s.jokerSounds !== false;
 }
 
 function playerAuth(b) {
@@ -313,6 +314,8 @@ function playerAction(path, b) {
 }
 
 // Avatars: generated character, emoji or initials; photos only when chosen by the host
+// optional MP3s for the jokers on the phones (otherwise the phones synthesize the sounds)
+const JOKER_FILES = ["joker-5050", "joker-public", "joker-phone"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
 const AV_MAX = 180000;   // characters of an avatar picture (data URL); the admin and the phones resize pictures below this
 function cleanAvatar(a, allowImg) {
   if (!a || typeof a !== "object") return null;
