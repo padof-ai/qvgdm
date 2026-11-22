@@ -876,12 +876,74 @@ function cfgSounds(b){
     const r=card.querySelector("[data-reset]"); r&&(r.onclick=async()=>{ await clearCustomSound(k); cfgSounds(b); });
   });
 }
+/* ================= Excel import (no library: an .xlsx is a zip of XML files) ================= */
+async function unzip(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf), out={};
+  let e=buf.byteLength-22; while(e>=0 && dv.getUint32(e,true)!==0x06054b50) e--;
+  if(e<0) throw new Error("zip");
+  const n=dv.getUint16(e+10,true); let p=dv.getUint32(e+16,true);
+  const dec=new TextDecoder();
+  for(let k=0;k<n;k++){
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true), nl=dv.getUint16(p+28,true), xl=dv.getUint16(p+30,true), cl=dv.getUint16(p+32,true), off=dv.getUint32(p+42,true);
+    const name=dec.decode(u8.subarray(p+46,p+46+nl)); p+=46+nl+xl+cl;
+    out[name]=async()=>{ const ln=dv.getUint16(off+26,true), lx=dv.getUint16(off+28,true), start=off+30+ln+lx, data=u8.slice(start,start+csize);
+      if(method===0) return dec.decode(data);
+      const st=new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(st).text(); };
+  }
+  return out;
+}
+async function readXlsxRows(file){
+  const z=await unzip(await file.arrayBuffer()), X=s=>new DOMParser().parseFromString(s,"application/xml");
+  const nsr="http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const wbx=X(await z["xl/workbook.xml"]()), sheets=[...wbx.getElementsByTagName("sheet")];
+  const sh=sheets.find(x=>(x.getAttribute("name")||"").trim().toLowerCase()==="questions")||sheets.find(x=>!/mode/i.test(x.getAttribute("name")))||sheets[0];
+  const rid=sh.getAttributeNS(nsr,"id")||sh.getAttribute("r:id");
+  const rel=[...X(await z["xl/_rels/workbook.xml.rels"]()).getElementsByTagName("Relationship")].find(r=>r.getAttribute("Id")===rid);
+  let target=rel.getAttribute("Target").replace(/^\/?xl\//,"").replace(/^\//,""); target="xl/"+target;
+  const shared=z["xl/sharedStrings.xml"]?[...X(await z["xl/sharedStrings.xml"]()).getElementsByTagName("si")].map(si=>[...si.getElementsByTagName("t")].map(t=>t.textContent).join("")):[];
+  const rows=[];
+  for(const r of X(await z[target]()).getElementsByTagName("row")){
+    const row={};
+    for(const c of r.getElementsByTagName("c")){
+      const col=(c.getAttribute("r")||"").replace(/\d+/g,""), t=c.getAttribute("t"), v=c.getElementsByTagName("v")[0];
+      let val= t==="s" ? shared[+(v&&v.textContent)] : t==="inlineStr" ? [...c.getElementsByTagName("t")].map(x=>x.textContent).join("") : (v?v.textContent:"");
+      row[col]=String(val??"").trim();
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+async function importXlsx(file){
+  let rows; try{ rows=await readXlsxRows(file); }catch(e){ notice("Ce fichier Excel n'a pas pu être lu. Enregistrez-le au format .xlsx (Classeur Excel) puis réessayez."); return; }
+  const head=rows.shift()||{}, norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+  const col=(...keys)=>Object.keys(head).find(k=>keys.some(key=>norm(head[k]).startsWith(key)));
+  const C={sel:col("selection"),ord:col("ordre"),lab:col("nom du bouton"),txt:col("question"),a:col("reponse a"),b:col("reponse b"),c:col("reponse c"),d:col("reponse d"),
+    ok:col("bonne reponse"),diff:col("difficulte"),pts:col("points en jeu"),jc:col("points perdus"),note:col("laius","rebond"),id:col("identifiant")};
+  if(!C.txt||!C.a||!C.ok){ notice("Colonnes introuvables : le fichier doit contenir au moins « Question », « Réponse A » à « Réponse D » et « Bonne réponse » sur sa première ligne."); return; }
+  const num=v=>{ const t=String(v||"").replace(",",".").trim(); return t===""||!isFinite(+t)?null:Math.round(+t); };
+  let list=rows.map((r,k)=>({r,k})).filter(({r})=>r[C.txt]&&(!C.sel||/^(oui|o|yes|x|1|vrai|true)$/i.test(r[C.sel]||"")));
+  list.sort((x,y)=>{ const a=num(x.r[C.ord]), b=num(y.r[C.ord]); return (a??1e9)-(b??1e9) || x.k-y.k; });
+  const bad=[];
+  const qs=list.map(({r,k})=>{
+    const old=r[C.id]&&CFG.questions.find(q=>q.id===r[C.id]);
+    const letter=String(r[C.ok]||"").trim().toUpperCase().charAt(0), correct="ABCD".indexOf(letter);
+    if(correct<0||!["a","b","c","d"].every(x=>r[C[x]])) bad.push(k+2);
+    return {id:old?old.id:(r[C.id]||uid("q")),label:r[C.lab]||"",text:r[C.txt],answers:["a","b","c","d"].map(x=>r[C[x]]||""),correct:Math.max(0,correct),
+      difficulty:Math.max(1,Math.min(4,num(r[C.diff])||2)),points:num(r[C.pts]),jokerCost:num(r[C.jc]),note:r[C.note]||"",
+      imgMode:old?old.imgMode:"none",img:old?old.img:null,aImgs:old?old.aImgs:[null,null,null,null]};
+  });
+  if(!qs.length){ notice("Aucune question sélectionnée : mettez « Oui » dans la colonne Sélection des questions à importer."); return; }
+  if(!await ask(`Remplacer les ${CFG.questions.length} questions actuelles par les ${qs.length} questions sélectionnées dans « ${file.name} » ?${bad.length?` Attention : ligne${bad.length>1?"s":""} ${bad.join(", ")} incomplète${bad.length>1?"s":""} (réponse ou bonne réponse manquante).`:""}`,{ok:"Importer"})) return;
+  CFG=normalizeConfig(Object.assign({},CFG,{questions:qs})); save(KEY_CFG,CFG); syncSettings();
+  toast(`${qs.length} questions importées depuis Excel`);
+}
 function cfgData(b){
   b.innerHTML=`<div class="ccard"><h4>Où sont enregistrés vos réglages ?</h4>
     <p style="font-size:14px;margin:0">Les questions, illustrations, sons et réglages sont enregistrés dans <b>ce navigateur, sur cet ordinateur</b> (ils ne sont pas envoyés sur le serveur, seul le texte de la question en cours l'est). Pour animer depuis un autre ordinateur ou un autre navigateur, exportez la configuration ici puis importez-la là-bas.</p></div>
   <div class="ccard"><h4>Exporter la configuration</h4><p style="color:var(--cfg-dim);font-size:14px;margin-top:0">Fichier .json avec les questions, illustrations et réglages : c'est votre copie de sécurité. Les sons importés ne sont pas inclus.</p>
     <button class="cb pri" id="dExp">Exporter (fichier .json)</button></div>
-  <div class="ccard"><h4>Importer une configuration</h4><p style="color:var(--cfg-dim);font-size:14px;margin-top:0">Fonctionne aussi avec les fichiers exportés depuis la version HTML du jeu (les équipes et les tirages au sort sont ignorés).</p><label class="cb" style="cursor:pointer;display:inline-block">Choisir un fichier .json…<input type="file" accept=".json,application/json" id="dImp" class="sr"></label></div>
+  <div class="ccard"><h4>Importer des questions ou une configuration</h4><p style="color:var(--cfg-dim);font-size:14px;margin-top:0"><b>Fichier Excel (.xlsx)</b> : les questions marquées « Oui » dans la colonne Sélection remplacent celles du jeu, dans l'ordre de la colonne Ordre ; l'emblème, les sons et les réglages sont conservés.<br><b>Fichier .json</b> : configuration complète exportée depuis le jeu (ou depuis la version HTML).</p><label class="cb pri" style="cursor:pointer;display:inline-block">Choisir un fichier .xlsx ou .json…<input type="file" accept=".json,application/json,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" id="dImp" class="sr"></label></div>
   <div class="ccard"><h4>Partie en cours</h4><div class="row"><button class="cb" id="dGame">Effacer les scores</button><button class="cb" id="dPl">Retirer tous les joueurs</button><button class="cb dan" id="dDef">Revenir à la configuration d'origine</button></div></div>
   <div class="ccard"><h4>Accès animateur</h4><p style="font-size:14px;margin:0 0 8px">${PROTECTED?"Cette page est protégée par le mot de passe défini sur Render.":"⚠️ Cette page n'est pas protégée : définissez la variable ADMIN_PASSWORD sur Render pour que personne d'autre ne puisse piloter le jeu."}</p>${PROTECTED?`<button class="cb" id="dOut">Se déconnecter de cet ordinateur</button>`:""}</div>`;
   $("#dExp").onclick=async()=>{
@@ -893,7 +955,9 @@ function cfgData(b){
       setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast("Configuration exportée");
     }catch(e){ notice("L'export a échoué : "+(e&&e.message||e)); } finally{ btn.disabled=false; }
   };
-  $("#dImp").onchange=e=>{ const f=e.target.files[0]; if(!f) return; f.text().then(async t=>{ try{ const o=JSON.parse(t); if(!Array.isArray(o.questions)) throw 0;
+  $("#dImp").onchange=e=>{ const f=e.target.files[0]; if(!f) return;
+    if(/\.xlsx$/i.test(f.name)){ e.target.value=""; return importXlsx(f).then(()=>openConfig()); }
+    f.text().then(async t=>{ try{ const o=JSON.parse(t); if(!Array.isArray(o.questions)) throw 0;
       CFG=normalizeConfig(o); if(o.media) await importMedia(o.media); save(KEY_CFG,CFG); syncSettings(); toast(`Configuration importée : ${CFG.questions.length} questions`); openConfig(); }
     catch(_){ toast("Ce fichier n'est pas une configuration du quiz (questions introuvables)."); } }); };
   $("#dGame").onclick=async()=>{ if(await ask("Effacer tous les scores ? Les joueurs restent inscrits.",{ok:"Effacer"})){ await admin("resetScores"); toast("Scores effacés"); } };

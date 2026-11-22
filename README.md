@@ -48,6 +48,7 @@ Variante : le fichier `render.yaml` permet aussi de passer par **New + → Bluep
 1. **5 minutes avant**, ouvrez `https://votre-adresse.onrender.com/admin` sur le PC relié au vidéoprojecteur. Sur l'offre gratuite, le serveur s'endort après 15 minutes sans visite : le premier chargement peut prendre jusqu'à une minute. Tant que la page animateur reste ouverte, elle le garde éveillé.
 2. Saisissez le mot de passe (`ADMIN_PASSWORD`). Il est mémorisé sur ce PC.
 3. Paramètres (⚙) : vérifiez vos questions. Les 15 questions « Spécial Nantes » sont proposées au premier lancement ; si vous aviez déjà ouvert la page animateur, importez `exemples/nantes.json` (onglet **Sauvegarde → Importer**). Pour l'immersion, importez `exemples/immersion-achats.json` (onglet **Sauvegarde → Importer**) : les 10 questions et leurs 10 illustrations sont chargées.
+exemples/Questions-quiz.xlsx    toutes les questions dans Excel : sélection (Oui/Non), ordre, modification, puis import direct dans le jeu
 4. Passez en plein écran (⛶ ou F11). L'accueil affiche le **QR code** : les participants le scannent, saisissent leur prénom et choisissent un avatar. Ils apparaissent en direct sur l'écran.
 5. **Lancer le jeu** → cliquez sur une question → **Afficher la question** : elle s'affiche sur l'écran **et** sur tous les téléphones.
 6. Les réponses se closent quand tout le monde a répondu, à la fin du temps imparti ou avec **Clore les réponses**. Musique de suspense, puis **Révéler la bonne réponse** (ou touche Entrée) : pourcentages par réponse, les plus rapides, votre rebond 👉, et chaque téléphone affiche son résultat.
@@ -67,6 +68,7 @@ Variante : le fichier `render.yaml` permet aussi de passer par **New + → Bluep
 
 ## Bon à savoir
 
+- **Préparer les questions dans Excel** : remplissez `exemples/Questions-quiz.xlsx` (Oui/Non, ordre, textes, laïus), puis Paramètres › Sauvegarde › Importer : seules les questions en « Oui » remplacent celles du jeu.
 - **Vos réglages** (questions, illustrations, sons) restent dans le navigateur du PC animateur. Exportez-les (onglet Sauvegarde) pour animer depuis un autre ordinateur. Les fichiers .json de la version HTML s'importent aussi.
 - **La partie en cours** (joueurs, scores) est gardée en mémoire par le serveur et recopiée sur le PC animateur. Si Render redémarre le serveur en pleine partie, la page animateur renvoie automatiquement sa copie : les joueurs se reconnectent tout seuls, sans perdre leurs points.
 - **Un joueur qui ferme son navigateur** retrouve sa place en rouvrant la page sur le même téléphone.
