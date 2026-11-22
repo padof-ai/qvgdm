@@ -32,6 +32,7 @@ function renderJoin() {
   </div>
   <div class="card">
     <span class="lbl">Votre avatar</span>
+    ${joinAv.kind === "img" ? `<div class="mypic">${avatarHTML(joinAv, joinName, 120)}<div><b>Votre image</b><br><button class="linkbtn" id="nopic">Choisir plutôt un personnage</button></div></div>` : ""}
     <div class="avgrid">${showEmo
       ? EMOJIS.slice(0, 16).map(e => `<button data-e="${e}" aria-pressed="${joinAv.kind === "emoji" && joinAv.v === e}" aria-label="${e}">${avatarHTML({ kind: "emoji", v: e }, "", 64)}</button>`).join("")
       : seeds.map(s => `<button data-s="${s}" aria-pressed="${joinAv.kind === "gen" && joinAv.seed === s}" aria-label="Personnage">${avatarHTML({ kind: "gen", seed: s }, "", 64)}</button>`).join("")}</div>
@@ -39,6 +40,7 @@ function renderJoin() {
       <button class="linkbtn" id="more">${showEmo ? "Voir des personnages" : "Autres personnages"}</button>
       <button class="linkbtn" id="emo">${showEmo ? "Autres émojis" : "Choisir un émoji"}</button>
     </div>
+    <label class="picbtn">📷 Utiliser mon image (avatar, photo…)<input type="file" accept="image/*" id="pf" class="sr"></label>
   </div>
   <button class="btn" id="go">C'est parti !</button>
   <p class="foot">Gardez cette page ouverte pendant tout le jeu.</p>`;
@@ -50,6 +52,10 @@ function renderJoin() {
   $("#more").onclick = () => { if (showEmo) showEmo = false; else seeds = [...Array(8)].map(() => rnd(1e6)); renderJoin(); };
   $("#emo").onclick = () => { if (showEmo) EMOJIS.push(...EMOJIS.splice(0, 16)); showEmo = true; renderJoin(); };
   $("#go").onclick = join;
+  $("#pf").onchange = async e => { const f = e.target.files[0]; if (!f) return;
+    try { joinAv = { kind: "img", src: await makeAvatarImage(f) }; joinErr = ""; } catch (err) { joinErr = "Image illisible : choisissez une photo JPG, PNG ou WebP."; }
+    renderJoin(); };
+  if ($("#nopic")) $("#nopic").onclick = () => { joinAv = { kind: "gen", seed: seeds[0] }; renderJoin(); };
 }
 async function join() {
   const name = ($("#nm").value || "").trim(); joinName = name;
@@ -100,7 +106,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 function stopTick() { clearInterval(tick); tick = null; }
 function meHTML() {
   const m = V.me;
-  return `<div class="card"><div class="me">${avatarHTML(m.avatar, m.name, 56)}<div class="nm">${esc(m.name)}</div></div>
+  return `<div class="card"><div class="me">${avatarHTML(m.avatar, m.name, 84)}<div class="nm">${esc(m.name)}</div></div>
     <div class="stats"><div class="stat"><b>${m.points}</b><span>point${m.points > 1 ? "s" : ""}</span></div>
     <div class="stat"><b>${m.rank ? m.rank + (m.rank === 1 ? "er" : "e") : "–"}</b><span>sur ${m.of} joueur${m.of > 1 ? "s" : ""}</span></div></div></div>`;
 }
@@ -138,7 +144,7 @@ function render(force) {
   }
   if (V.phase === "results") {
     const m = V.me;
-    app.innerHTML = `<div class="brand">Le classement</div><div class="card center">${avatarHTML(m.avatar, m.name, 90)}
+    app.innerHTML = `<div class="brand">Le classement</div><div class="card center">${avatarHTML(m.avatar, m.name, 170)}
       <p class="big" style="margin:10px 0 4px">${esc(m.name)}</p><div class="rank">${m.rank}${m.rank === 1 ? "er" : "e"}</div>
       <p class="dim" style="margin:4px 0 0">sur ${m.of} joueur${m.of > 1 ? "s" : ""}, avec ${ptsTxt(m.points)}</p>
       ${V.settings.tieSpeed && m.tied && m.points > 0 ? `<p class="dim" style="margin:6px 0 0;font-size:14px">⏱ À égalité de points avec ${m.tied} joueur${m.tied > 1 ? "s" : ""} : départagé${m.tied > 1 ? "s" : ""} à la vitesse (${secTxt(m.ms)} cumulées sur vos bonnes réponses)</p>` : ""}

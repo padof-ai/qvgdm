@@ -89,7 +89,16 @@ function publicVote(correct, difficulty, gone) {
 }
 
 /* ----------------------------------------------------- views sent to screens */
-function publicPlayer(p) { return { pid: p.pid, name: p.name, avatar: p.avatar }; }
+// Pictures are not repeated in every update: the views carry a cacheable address instead (/api/av/<pid>?v=…)
+function viewAvatar(p) {
+  const a = p.avatar;
+  if (a && a.kind === "img" && typeof a.src === "string" && a.src.startsWith("data:")) {
+    if (!p.avV || p.avSrc !== a.src) { p.avSrc = a.src; p.avV = crypto.createHash("sha1").update(a.src).digest("hex").slice(0, 10); }
+    return { kind: "img", src: `/api/av/${p.pid}?v=${p.avV}` };
+  }
+  return a;
+}
+function publicPlayer(p) { return { pid: p.pid, name: p.name, avatar: viewAvatar(p) }; }
 function adminView() {
   const sc = scores();
   const cur = G.cur && {
@@ -268,7 +277,7 @@ function playerAction(path, b) {
     if ([...G.players.values()].some(p => p.name.toLowerCase() === name.toLowerCase()))
       return { ok: false, error: "Ce nom est déjà pris : ajoutez l'initiale de votre nom (ex. : « Marie D. »)." };
     if (G.players.size >= MAX_PLAYERS) return { ok: false, error: "La partie est complète." };
-    const av = cleanAvatar(b.avatar, false) || { kind: "gen", seed: rnd(1e6) };
+    const av = cleanAvatar(b.avatar, true) || { kind: "gen", seed: rnd(1e6) };   // a player may send his own picture
     const p = { pid: rid(8), token: rid(18), name, avatar: av, joinedAt: now(), jokersUsed: {} };
     G.players.set(p.pid, p); pushAll();
     return { ok: true, pid: p.pid, token: p.token, gameId: G.gameId };
@@ -304,11 +313,12 @@ function playerAction(path, b) {
 }
 
 // Avatars: generated character, emoji or initials; photos only when chosen by the host
+const AV_MAX = 180000;   // characters of an avatar picture (data URL); the admin and the phones resize pictures below this
 function cleanAvatar(a, allowImg) {
   if (!a || typeof a !== "object") return null;
   if (a.kind === "emoji") return { kind: "emoji", v: clean(a.v, 16) };
   if (a.kind === "ini") return { kind: "ini", color: /^#[0-9a-f]{6}$/i.test(a.color) ? a.color : "#3c49d6" };
-  if (a.kind === "img" && allowImg && typeof a.src === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a.src) && a.src.length < 70000) return { kind: "img", src: a.src };
+  if (a.kind === "img" && allowImg && typeof a.src === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a.src) && a.src.length <= AV_MAX) return { kind: "img", src: a.src };
   if (a.kind === "gen") return { kind: "gen", seed: Math.abs(Math.round(+a.seed) || 1) % 1e7 };
   return null;
 }
@@ -348,6 +358,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && p === "/admin") return serveFile(res, path.join(PUBLIC, "admin.html"));
     if (req.method === "GET" && p === "/api/game") return json(res, 200, { gameId: G.gameId });
     if (req.method === "GET" && p === "/healthz") return json(res, 200, { ok: true, players: G.players.size });
+    if (req.method === "GET" && p.startsWith("/api/av/")) {
+      const pl = G.players.get(p.slice(8)), a = pl && pl.avatar;
+      const m = a && a.kind === "img" && /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(a.src || "");
+      if (!m) { res.writeHead(404); return res.end(); }
+      const buf = Buffer.from(m[2], "base64");
+      res.writeHead(200, { "Content-Type": m[1], "Content-Length": buf.length, "Cache-Control": "public, max-age=31536000, immutable" });
+      return res.end(buf);
+    }
     if (req.method === "GET" && p === "/api/qr.svg") {
       const t = (url.searchParams.get("t") || "").slice(0, 300);
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" }); return res.end(qrSVG(t || "https://example.com"));
@@ -372,7 +390,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && p === "/api/admin") {
-      const b = await readBody(req, 100000);
+      const b = await readBody(req, 12e6);   // a restore carries every player, pictures included
       if (!isAdmin(b.key)) return json(res, 401, { ok: false, error: "Mot de passe incorrect." });
       return json(res, 200, adminAction(b));
     }
@@ -381,7 +399,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: isAdmin(b.key), protected: !!ADMIN_PASSWORD });
     }
     if (req.method === "POST" && ["/api/join", "/api/answer", "/api/joker"].includes(p)) {
-      const b = await readBody(req, 5000);
+      const b = await readBody(req, p === "/api/join" ? AV_MAX + 4000 : 5000);
       return json(res, 200, playerAction(p.slice(5), b));
     }
     if (req.method === "GET") {

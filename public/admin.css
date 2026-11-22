@@ -71,9 +71,9 @@ img{max-width:100%}
 .foot{font-size:13px;color:var(--ice-dim);font-style:italic}
 
 /* ---------- Avatars ---------- */
-.av{display:inline-block;border-radius:50%;overflow:hidden;flex:none;background:#223;position:relative}
-.av svg,.av img{width:100%;height:100%;display:block;object-fit:cover}
-.av .emo{width:100%;height:100%;display:grid;place-items:center;background:radial-gradient(circle at 50% 35%,#3a3fd0,#12156e)}
+.av{display:inline-block;border-radius:14%/10.5%;overflow:hidden;flex:none;position:relative;background:radial-gradient(circle at 50% 36%,#3d44d8,#14187a 75%);vertical-align:middle}
+.av svg,.av img{width:100%;height:100%;display:block;object-fit:contain;object-position:50% 100%}
+.av .emo{width:100%;height:100%;display:grid;place-items:center}
 .av .ini{width:100%;height:100%;display:grid;place-items:center;font-family:var(--display);font-weight:800;color:#fff}
 
 /* ---------- Hub ---------- */
@@ -236,7 +236,7 @@ img{max-width:100%}
 .credits{text-align:center}
 .credits h2{margin-bottom:1vh}
 .cwall{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;max-width:1300px;margin:2vh auto}
-.cwall div{width:86px;text-align:center;font-size:13px;font-weight:600;color:#fff}
+.cwall div{width:96px;text-align:center;font-size:13px;font-weight:600;color:#fff}
 #confetti{position:fixed;inset:0;pointer-events:none;z-index:35}
 
 /* ---------- Config ---------- */
@@ -283,7 +283,7 @@ img{max-width:100%}
 .pick{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;display:grid;place-items:center;padding:16px}
 .pickp{background:var(--cfg-card);color:var(--cfg-text);border-radius:12px;max-width:620px;width:100%;max-height:90vh;overflow:auto;padding:18px}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;margin:8px 0 14px}
-.pgrid button{border:2px solid transparent;background:none;border-radius:50%;padding:2px;aspect-ratio:1}
+.pgrid button{border:2px solid transparent;background:none;border-radius:12px;padding:2px;display:grid;place-items:center}
 .pgrid button:hover{border-color:var(--gold)}
 .egrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px;margin:8px 0 14px}
 .egrid button{font-size:26px;background:var(--cfg-input);border:1px solid rgba(128,140,200,.3);border-radius:8px;padding:4px}
@@ -374,7 +374,7 @@ img{max-width:100%}
 .plhead{font-family:var(--display);font-size:clamp(20px,2vw,28px);color:#fff}
 .plhead b{color:var(--gold)}
 .wall2{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:640px;max-height:34vh;overflow:auto}
-.wall2 .pl{display:flex;flex-direction:column;align-items:center;width:76px;font-size:13px;font-weight:600;color:#fff;text-align:center;line-height:1.1}
+.wall2 .pl{display:flex;flex-direction:column;align-items:center;min-width:84px;font-size:13px;font-weight:600;color:#fff;text-align:center;line-height:1.1}
 .wall2 .pl span{margin-top:4px;overflow:hidden;text-overflow:ellipsis;max-width:100%;white-space:nowrap}
 .wall2 .pl.off{opacity:.4}
 @media (prefers-reduced-motion:no-preference){ .wall2 .pl{animation:pop .45s ease-out} }
@@ -406,7 +406,7 @@ img{max-width:100%}
 .exbtn:hover{background:rgba(229,35,43,.35)}
 .picks{display:flex;align-items:center;flex:none;max-width:48%;padding-left:6px}
 .picks:empty{display:none}
-.picks .pk{margin-left:-11px;border-radius:50%;box-shadow:0 0 0 2px #fff;line-height:0;display:inline-block}
+.picks .pk{margin-left:-12px;border-radius:14%/10.5%;box-shadow:0 0 0 2px #fff;line-height:0;display:inline-block}
 .picks .pk:first-child{margin-left:0}
 @media (prefers-reduced-motion:no-preference){ .picks .pk{animation:pkin .45s cubic-bezier(.2,.9,.3,1.4) both} }
 @keyframes pkin{from{transform:scale(0) translateY(8px);opacity:0}to{transform:none;opacity:1}}
@@ -414,12 +414,16 @@ img{max-width:100%}
 
 /* crop editor */
 .cropp{max-width:920px}
-.cropstage{position:relative;display:inline-block;max-width:100%;line-height:0;overflow:hidden;border-radius:6px;background:#111;touch-action:none;user-select:none}
-.cropstage img{display:block;max-width:min(100%,880px);max-height:58vh;width:auto;height:auto}
-.cropbox{position:absolute;box-shadow:0 0 0 9999px rgba(4,5,46,.62);outline:2px solid #fff;cursor:move}
-.cropbox .cg{position:absolute;inset:0;pointer-events:none;background:
-  linear-gradient(to right,transparent 33.2%,rgba(255,255,255,.45) 33.2%,rgba(255,255,255,.45) 33.6%,transparent 33.6%,transparent 66.4%,rgba(255,255,255,.45) 66.4%,rgba(255,255,255,.45) 66.8%,transparent 66.8%),
-  linear-gradient(to bottom,transparent 33.2%,rgba(255,255,255,.45) 33.2%,rgba(255,255,255,.45) 33.6%,transparent 33.6%,transparent 66.4%,rgba(255,255,255,.45) 66.4%,rgba(255,255,255,.45) 66.8%,transparent 66.8%)}
-.cropbox .ch{position:absolute;width:22px;height:22px;background:#f2c14e;border:2px solid #fff;border-radius:3px;z-index:1}
-.cropbox .ch.nw{left:-2px;top:-2px;cursor:nwse-resize}.cropbox .ch.se{right:-2px;bottom:-2px;cursor:nwse-resize}
-.cropbox .ch.ne{right:-2px;top:-2px;cursor:nesw-resize}.cropbox .ch.sw{left:-2px;bottom:-2px;cursor:nesw-resize}
+.cropwrap{background:repeating-conic-gradient(#1a1d3a 0 25%,#14162e 0 50%) 0 0/22px 22px;border-radius:8px;padding:14px;display:flex;justify-content:center}
+.cropframe{position:relative;overflow:hidden;border-radius:4px;touch-action:none;user-select:none;cursor:grab;box-shadow:0 0 0 2px #fff,0 8px 28px rgba(0,0,0,.5)}
+.cropframe.drag{cursor:grabbing}
+.cropframe .cbg{position:absolute;left:-10%;top:-10%;width:120%;height:120%;max-width:none;max-height:none;object-fit:cover;filter:blur(14px) brightness(.78);pointer-events:none}
+.cropframe .cm{position:absolute;max-width:none;max-height:none;pointer-events:none}
+.cropframe .cg{position:absolute;inset:0;pointer-events:none;background:
+  linear-gradient(to right,transparent 33.2%,rgba(255,255,255,.35) 33.2%,rgba(255,255,255,.35) 33.6%,transparent 33.6%,transparent 66.4%,rgba(255,255,255,.35) 66.4%,rgba(255,255,255,.35) 66.8%,transparent 66.8%),
+  linear-gradient(to bottom,transparent 33.2%,rgba(255,255,255,.35) 33.2%,rgba(255,255,255,.35) 33.6%,transparent 33.6%,transparent 66.4%,rgba(255,255,255,.35) 66.4%,rgba(255,255,255,.35) 66.8%,transparent 66.8%)}
+.cb .sw{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid rgba(128,140,200,.6);margin-right:5px;vertical-align:-1px}
+/* prepared avatars */
+.libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
+.libit{display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--cfg-input);border:1px solid rgba(128,140,200,.35);border-radius:10px;padding:8px}
+.libit .inp{font-size:14px;padding:5px 8px;text-align:center}

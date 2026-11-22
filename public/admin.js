@@ -17,7 +17,9 @@ const NS="";
 const KEY_CFG="qvgda_online_config_v1", KEY_SNAP="qvgda_online_snapshot_v1", KEY_ADMIN="qvgda_online_admin_key";
 function load(k){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):null; }catch(e){ return null; } }
 function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ toast("Sauvegarde impossible : stockage plein ou indisponible. Pensez à exporter la configuration."); return false; } }
-const cleanCrop=c=>c&&typeof c==="object"&&[c.x,c.y,c.w,c.h].every(v=>isFinite(+v))?{x:+c.x,y:+c.y,w:+c.w,h:+c.h,ratio:String(c.ratio||"free")}:null;
+const cleanCrop=c=>!c||typeof c!=="object"?null
+  : c.v===2&&[c.k,c.px,c.py].every(v=>isFinite(+v))?{v:2,ratio:String(c.ratio||"orig"),k:+c.k,px:+c.px,py:+c.py,bg:/^(blur|#[0-9a-f]{6})$/i.test(c.bg)?c.bg:"blur"}
+  : [c.x,c.y,c.w,c.h].every(v=>isFinite(+v))?{x:+c.x,y:+c.y,w:+c.w,h:+c.h,ratio:String(c.ratio||"free")}:null;
 const numOrNull=v=>(v===null||v===undefined||v===""||!isFinite(+v))?null:Math.max(0,Math.min(1000,Math.round(+v)));
 function normalizeConfig(c){
   const d=clone(DEFAULT_CONFIG);
@@ -35,6 +37,8 @@ function normalizeConfig(c){
   o.jokers=Object.assign({fifty:true,public:true,phone:false}, (c&&c.jokers)||{});
   o.jokerScope=(c&&c.jokerScope)==="question"?"question":"game";
   o.autoClose=!(c&&c.autoClose===false);
+  o.avatarLib=Array.isArray(c&&c.avatarLib)?c.avatarLib.filter(x=>x&&x.id).map(x=>({id:String(x.id),name:String(x.name||"")})):[];
+  o.autoLib=!(c&&c.autoLib===false);
   o.tieSpeed=!(c&&c.tieSpeed===false);
   o.basePoints=Math.max(1,+o.basePoints||3); o.jokerCost=Math.max(0,o.jokerCost==null?1:+o.jokerCost);
   o.questions=Array.isArray(o.questions)?o.questions.map(q=>({id:q.id||uid("q"),text:String(q.text||""),answers:[0,1,2,3].map(i=>String((q.answers||[])[i]||"")),
@@ -185,9 +189,9 @@ async function addImage(file){
   IMGBLOB[id]=blob; IMG[id]=URL.createObjectURL(blob); return id;
 }
 const imageIdsOf = q => [q.img,q.imgOrig,...q.aImgs,...(q.aOrig||[])].filter(Boolean);
-async function removeImage(id){ if(!id) return; const used=CFG.questions.some(q=>imageIdsOf(q).includes(id)); if(used) return; if(IMG[id]){ URL.revokeObjectURL(IMG[id]); delete IMG[id]; } delete IMGBLOB[id]; }
+async function removeImage(id){ if(!id) return; const used=CFG.questions.some(q=>imageIdsOf(q).includes(id))||CFG.avatarLib.some(a=>a.id===id); if(used) return; if(IMG[id]){ URL.revokeObjectURL(IMG[id]); delete IMG[id]; } delete IMGBLOB[id]; }
 async function exportMedia(){
-  const ids=new Set(); CFG.questions.forEach(q=>imageIdsOf(q).forEach(i=>ids.add(i)));
+  const ids=new Set(); CFG.questions.forEach(q=>imageIdsOf(q).forEach(i=>ids.add(i))); CFG.avatarLib.forEach(a=>ids.add(a.id));
   const out={};
   for(const id of ids){ const blob=IMGBLOB[id]; if(!blob) continue;
     out[id]=await new Promise((r,j)=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.onerror=()=>j(fr.error); fr.readAsDataURL(blob); }); }
@@ -305,10 +309,71 @@ async function onState(st){
     render(); return;
   }
   // keep a copy of the game (with players' reconnection keys) on this PC
-  const sig=S.players.map(p=>p.pid).join()+"|"+S.order.join()+"|"+Object.values(S.results).map(r=>r.at).join();
+  const sig=S.players.map(p=>p.pid+":"+(p.avatar&&(p.avatar.src||p.avatar.seed||p.avatar.v||p.avatar.color))).join()+"|"+S.order.join()+"|"+Object.values(S.results).map(r=>r.at).join();
   if(sig!==lastSnapSig){ lastSnapSig=sig; clearTimeout(snapT); snapT=setTimeout(async()=>{ const r=await admin("snapshot"); if(r.ok&&r.snapshot) save(KEY_SNAP,r.snapshot); },800); }
   if(prev && prev.players.length<S.players.length && (screen==="home"||screen==="hub")) SFX.win();
   update(prev);
+  autoAssignAvatars();
+}
+/* ============ Avatars prepared in advance (one picture per participant, matched on the first name) ============ */
+const normName = s => String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+const nameFromFile = f => String(f).replace(/\.[a-z0-9]+$/i,"").replace(/[_.\-]+/g," ").split(/\s+/)
+  .filter(w=>w && !/^(avatar|avatars|chibi|photo|img|image|portrait|perso|personnage|\d+)$/i.test(w)).join(" ").trim();
+function libMatch(playerName){
+  const pn=normName(playerName), pt=pn.split(" ").filter(Boolean); if(!pt.length) return null;
+  const libs=CFG.avatarLib.filter(a=>IMGBLOB[a.id]&&normName(a.name));
+  const exact=libs.filter(a=>normName(a.name)===pn); if(exact.length) return exact[0];
+  // "Alexis" ↔ "Alexis D." / "Alexis Martin": every word of one side found in the other, and only one candidate
+  const c=libs.filter(a=>{ const lt=normName(a.name).split(" "); return lt.every(w=>pt.includes(w)) || (lt[0]===pt[0] && pt.every(w=>lt.includes(w)||w.length===1)); });
+  return c.length===1?c[0]:null;
+}
+const blobToDataURL = b => new Promise((r,j)=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.onerror=()=>j(fr.error); fr.readAsDataURL(b); });
+const libDone=new Set();
+let libBusy=false;
+async function autoAssignAvatars(force){
+  if(libBusy || !S || !CFG.avatarLib.length || (!CFG.autoLib && !force)) return 0;
+  libBusy=true; let n=0;
+  try{
+    for(const p of S.players){
+      const key=S.gameId+":"+p.pid;
+      if(!force && (libDone.has(key) || (p.avatar&&p.avatar.kind==="img"))) continue;
+      libDone.add(key);
+      const a=libMatch(p.name); if(!a) continue;
+      const r=await admin("avatar",{pid:p.pid,avatar:{kind:"img",src:await blobToDataURL(IMGBLOB[a.id])}});
+      if(r.ok){ n++; if(!force) toast(`${p.name} : avatar « ${a.name} » appliqué`); }
+    }
+  }finally{ libBusy=false; }
+  return n;
+}
+async function addLibFiles(files,removeBg){
+  let n=0;
+  for(const f of files){
+    try{ const url=await makeAvatarImage(f,{removeBg}); const blob=dataUrlToBlob(url), id=uid("avl");
+      try{ await idbOp("readwrite",st=>st.put(blob,id),"images"); }catch(e){}
+      IMGBLOB[id]=blob; IMG[id]=URL.createObjectURL(blob);
+      CFG.avatarLib.push({id,name:nameFromFile(f.name)}); n++;
+    }catch(e){ toast(`${f.name} : image illisible`); }
+  }
+  CFG.avatarLib.sort((a,b)=>a.name.localeCompare(b.name,"fr")); saveCfg(); return n;
+}
+function libCard(){
+  return `<div class="ccard" id="libCard"><h4>Avatars préparés pour les participants</h4>
+    <p style="font-size:14px;color:var(--cfg-dim);margin:0 0 10px">Importez à l'avance une image par participant (par exemple <i>Avatar_chibi_Alexis.png</i>). Le prénom est tiré du nom du fichier et reste modifiable. Quand un joueur rejoint la partie sous ce prénom, son avatar est appliqué automatiquement. Les images sont affichées en entier, au format portrait.</p>
+    <div class="row" style="margin-bottom:10px"><label class="cb pri" style="cursor:pointer">Importer des images…<input type="file" accept="image/*" multiple id="libF" class="sr"></label>
+      <label class="chk" style="margin:0;font-size:14px"><input type="checkbox" id="libBg" checked> Retirer le fond blanc</label>
+      ${CFG.avatarLib.length?`<button class="cb" id="libApply">Appliquer aux joueurs déjà connectés</button><button class="cb sm dan" id="libClr">Tout retirer</button>`:""}</div>
+    <label class="chk"><input type="checkbox" data-k="autoLib"> Appliquer automatiquement quand un joueur rejoint la partie avec ce prénom</label>
+    <div class="libgrid">${CFG.avatarLib.map(a=>`<div class="libit">${avatarHTML({kind:"img",src:IMG[a.id]||""},a.name,120)}
+      <input class="inp" data-libn="${a.id}" value="${esc(a.name)}" aria-label="Prénom associé" placeholder="Prénom">
+      <button class="cb sm dan" data-libx="${a.id}" aria-label="Retirer l'avatar de ${esc(a.name)}">Retirer</button></div>`).join("")||`<div class="empty" style="padding:8px">Aucun avatar préparé.</div>`}</div></div>`;
+}
+function bindLib(b,redraw){
+  $("#libF",b).onchange=async e=>{ const fs=[...e.target.files]; if(!fs.length) return; toast("Préparation des avatars…");
+    const n=await addLibFiles(fs,$("#libBg",b).checked); toast(`${n} avatar${n>1?"s":""} ajouté${n>1?"s":""}`); redraw(); libDone.clear(); autoAssignAvatars(); };
+  b.querySelectorAll("[data-libn]").forEach(i=>i.onchange=()=>{ const a=CFG.avatarLib.find(x=>x.id===i.dataset.libn); if(a){ a.name=i.value.trim(); saveCfg(); libDone.clear(); autoAssignAvatars(); } });
+  b.querySelectorAll("[data-libx]").forEach(x=>x.onclick=()=>{ const id=x.dataset.libx; CFG.avatarLib=CFG.avatarLib.filter(a=>a.id!==id); saveCfg(); removeImage(id); redraw(); });
+  $("#libApply",b)&&($("#libApply",b).onclick=async()=>{ const n=await autoAssignAvatars(true); toast(n?`${n} avatar${n>1?"s":""} appliqué${n>1?"s":""}`:"Aucun joueur connecté ne correspond à ces prénoms"); });
+  $("#libClr",b)&&($("#libClr",b).onclick=async()=>{ if(!await ask("Retirer tous les avatars préparés ? Les joueurs gardent l'avatar déjà appliqué.",{ok:"Tout retirer"})) return; const ids=CFG.avatarLib.map(a=>a.id); CFG.avatarLib=[]; saveCfg(); ids.forEach(removeImage); redraw(); });
 }
 // Light refresh of the current screen; full renders only when the situation changes
 function update(prev){
@@ -327,7 +392,7 @@ const onlineCount = () => S ? S.players.filter(p=>p.online).length : 0;
 const plCount = () => { const n=S?S.players.length:0; return `${n} joueur${n>1?"s":""}`; };
 function wallHTML(){
   if(!S||!S.players.length) return `<p class="wait">En attente des premiers joueurs…</p>`;
-  return S.players.map(p=>`<button class="pl ${p.online?"":"off"}" data-pl="${p.pid}" title="${esc(p.name)}${p.online?"":" (déconnecté)"} : changer l'avatar ou exclure">${avatarHTML(p.avatar,p.name,52)}<span>${esc(p.name)}</span></button>`).join("");
+  return S.players.map(p=>`<button class="pl ${p.online?"":"off"}" data-pl="${p.pid}" title="${esc(p.name)}${p.online?"":" (déconnecté)"} : changer l'avatar ou exclure">${avatarHTML(p.avatar,p.name,S.players.length<=8?112:S.players.length<=16?92:74)}<span>${esc(p.name)}</span></button>`).join("");
 }
 function bindWall(){ app.querySelectorAll("[data-pl]").forEach(b=>b.onclick=()=>playerCard(b.dataset.pl)); }
 // The host picks a player's avatar (character, emoji, initials or photo)
@@ -344,7 +409,7 @@ async function excludePlayer(pid){
 function playerCard(pid){
   const draw=ov=>{
     const p=playerById(pid); if(!p){ ov._close(); return; }
-    ov.querySelector(".ovp").innerHTML=`<div style="text-align:center">${avatarHTML(p.avatar,p.name,120)}<h3 style="margin-top:10px">${esc(p.name)}</h3>
+    ov.querySelector(".ovp").innerHTML=`<div style="text-align:center">${avatarHTML(p.avatar,p.name,220)}<h3 style="margin-top:10px">${esc(p.name)}</h3>
       <p>${p.online?"● connecté":"○ déconnecté"} · ${ptsTxt(p.score?p.score.points:0)}</p></div>
       <div class="row center" style="margin-top:8px"><button class="btn" id="cAv">Changer l'avatar</button><button class="btn ghost" id="cEx">Exclure du jeu</button><button class="btn gold" id="cX">Fermer</button></div>`;
     $("#cAv",ov).onclick=()=>pickPlayerAvatar(pid,()=>draw(ov));
@@ -399,7 +464,7 @@ function renderHub(){
     const cls=r?(pct>=50?"ok":"ko"):"";
     let who="";
     if(r){ const best=Object.entries(r.rows).filter(([,x])=>x.ok).sort((a,b)=>a[1].ms-b[1].ms).slice(0,3).map(([pid])=>playerById(pid)).filter(Boolean);
-      who=`<span class="who"><span class="gauge" title="${good} bonne(s) réponse(s) sur ${n}"><i style="width:${pct}%"></i></span><span class="nm">${good}/${n} bonne${good>1?"s":""} réponse${good>1?"s":""}</span>${best.length?`<span class="avs" title="Les plus rapides : ${esc(best.map(p=>p.name).join(", "))}">${best.map(p=>avatarHTML(p.avatar,p.name,28)).join("")}</span>`:""}</span>`; }
+      who=`<span class="who"><span class="gauge" title="${good} bonne(s) réponse(s) sur ${n}"><i style="width:${pct}%"></i></span><span class="nm">${good}/${n} bonne${good>1?"s":""} réponse${good>1?"s":""}</span>${best.length?`<span class="avs" title="Les plus rapides : ${esc(best.map(p=>p.name).join(", "))}">${best.map(p=>avatarHTML(p.avatar,p.name,40)).join("")}</span>`:""}</span>`; }
     return `<div class="trow"><span class="tcheck ${r?"on":""}" aria-hidden="true">✓</span>
       <button class="tcode ${cls}" data-q="${q.id}" title="${esc(qLabel(q)+" — "+q.text)}"><span class="tl">${esc(qLabel(q))}</span></button>
       <span class="tjok">${diffBadge(q)}${who}</span>
@@ -470,7 +535,7 @@ function managePlayers(){
     const ps=(S.players||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,"fr"));
     ov.querySelector(".ovp").innerHTML=`<h3>Joueurs (${ps.length})</h3><p>${onlineCount()} connecté${onlineCount()>1?"s":""} en ce moment</p>
       <div style="display:flex;flex-direction:column;gap:6px"><p style="margin-top:-8px">Cliquez sur un avatar pour le changer.</p>
-      ${ps.map(p=>`<div class="rk" style="grid-template-columns:auto 1fr auto auto;font-size:18px"><button class="avbtn" data-av="${p.pid}" title="Changer l'avatar de ${esc(p.name)}" aria-label="Changer l'avatar de ${esc(p.name)}">${avatarHTML(p.avatar,p.name,40)}</button><span>${esc(p.name)} <small style="color:${p.online?"#7dffb7":"var(--ice-dim)"};font-size:.7em">${p.online?"● connecté":"○ déconnecté"}</small></span><b>${ptsTxt(p.score?p.score.points:0)}</b><button class="exbtn" data-kick="${p.pid}" aria-label="Exclure ${esc(p.name)}">Exclure</button></div>`).join("")||`<p>Aucun joueur inscrit.</p>`}</div>
+      ${ps.map(p=>`<div class="rk" style="grid-template-columns:auto 1fr auto auto;font-size:18px"><button class="avbtn" data-av="${p.pid}" title="Changer l'avatar de ${esc(p.name)}" aria-label="Changer l'avatar de ${esc(p.name)}">${avatarHTML(p.avatar,p.name,58)}</button><span>${esc(p.name)} <small style="color:${p.online?"#7dffb7":"var(--ice-dim)"};font-size:.7em">${p.online?"● connecté":"○ déconnecté"}</small></span><b>${ptsTxt(p.score?p.score.points:0)}</b><button class="exbtn" data-kick="${p.pid}" aria-label="Exclure ${esc(p.name)}">Exclure</button></div>`).join("")||`<p>Aucun joueur inscrit.</p>`}</div>
       ${(S.banned||[]).length?`<h3 style="font-size:20px;margin-top:18px">Exclus (${S.banned.length})</h3><div style="display:flex;flex-direction:column;gap:6px">${S.banned.map(x=>`<div class="rk" style="grid-template-columns:auto 1fr auto;font-size:18px;opacity:.8">${avatarHTML(x.avatar,x.name,30)}<span>${esc(x.name)}</span><button class="exbtn" data-unban="${esc(x.name)}">Réautoriser</button></div>`).join("")}</div>`:""}
       <div class="row center" style="margin-top:16px">${ps.length?`<button class="btn ghost" id="pClr">Vider la liste</button>`:""}<button class="btn gold" id="pX">Fermer</button></div>`;
     ov.querySelectorAll("[data-kick]").forEach(b=>b.onclick=async()=>{ if(await excludePlayer(b.dataset.kick)) setTimeout(()=>draw(ov),250); });
@@ -486,7 +551,7 @@ function showRound(q){
     const r=resultOf(q); if(!r){ ov._close(); return; }
     const list=Object.entries(r.rows).map(([pid,x])=>({p:playerById(pid),x,pid})).filter(e=>e.p).sort((a,b)=>(b.x.ok-a.x.ok)||(a.x.ms-b.x.ms));
     ov.querySelector(".ovp").innerHTML=`<h3>${esc(qLabel(q))}</h3><p>Bonne réponse : ${L[r.correct]} — ${esc(r.answers[r.correct])}</p>
-      <div style="display:flex;flex-direction:column;gap:6px">${list.map(e=>`<div class="rk" style="grid-template-columns:auto 1fr auto auto auto;font-size:18px">${avatarHTML(e.p.avatar,e.p.name,32)}<span>${esc(e.p.name)} <small style="color:var(--ice-dim);font-size:.7em">${L[e.x.choice]} · ${(e.x.ms/1000).toFixed(1).replace(".",",")} s${Object.values(e.x.jokers||{}).some(Boolean)?" · joker":""}</small></span><span style="color:${e.x.ok?"#7dffb7":"#ff9a9e"}">${e.x.ok?"✓":"✗"}</span><b>${e.x.points}</b>
+      <div style="display:flex;flex-direction:column;gap:6px">${list.map(e=>`<div class="rk" style="grid-template-columns:auto 1fr auto auto auto;font-size:18px">${avatarHTML(e.p.avatar,e.p.name,46)}<span>${esc(e.p.name)} <small style="color:var(--ice-dim);font-size:.7em">${L[e.x.choice]} · ${(e.x.ms/1000).toFixed(1).replace(".",",")} s${Object.values(e.x.jokers||{}).some(Boolean)?" · joker":""}</small></span><span style="color:${e.x.ok?"#7dffb7":"#ff9a9e"}">${e.x.ok?"✓":"✗"}</span><b>${e.x.points}</b>
         <span class="adj"><button data-d="-1" data-pid="${e.pid}" aria-label="Retirer un point">−</button><button data-d="1" data-pid="${e.pid}" aria-label="Ajouter un point">+</button></span></div>`).join("")||`<p>Personne n'a répondu.</p>`}</div>
       <div class="row center" style="margin-top:16px"><button class="btn ghost" id="rDel">Annuler cette question</button><button class="btn gold" id="rX">Fermer</button></div>`;
     ov.querySelectorAll("[data-d]").forEach(b=>b.onclick=async()=>{ await admin("adjust",{qid:q.id,pid:b.dataset.pid,delta:+b.dataset.d}); setTimeout(()=>draw(ov),150); });
@@ -611,10 +676,11 @@ function renderPicks(animate){
   const pk=S&&S.cur&&S.cur.picks; if(!pk) return;
   const by=[[],[],[],[]]; Object.entries(pk).forEach(([pid,c])=>{ const p=playerById(pid); if(p&&by[c]) by[c].push(p); });
   const MAX=9; let k=0;
+  const ans=app.querySelector(".ans"), PK=Math.max(34,Math.min(64,(ans?ans.offsetHeight:60)-4));   // full-length avatars, as tall as an answer
   app.querySelectorAll("[data-pk]").forEach(el=>{
     const ps=by[+el.dataset.pk], extra=ps.length-MAX;
     el.title=ps.map(p=>p.name).join(", ");
-    el.innerHTML=ps.slice(0,extra>0?MAX-1:MAX).map(p=>`<span class="pk" style="${animate?`animation-delay:${(k++)*70}ms`:"animation:none"}">${avatarHTML(p.avatar,p.name,38)}</span>`).join("")+(extra>0?`<span class="pkmore">+${extra+1}</span>`:"");
+    el.innerHTML=ps.slice(0,extra>0?MAX-1:MAX).map(p=>`<span class="pk" style="${animate?`animation-delay:${(k++)*70}ms`:"animation:none"}">${avatarHTML(p.avatar,p.name,PK)}</span>`).join("")+(extra>0?`<span class="pkmore">+${extra+1}</span>`:"");
   });
 }
 function updateLive(){
@@ -636,7 +702,7 @@ function footer(){
     const r=S.results[q.id], rows=r?Object.entries(r.rows):[], good=rows.filter(([,x])=>x.ok);
     const fast=good.sort((a,b)=>a[1].ms-b[1].ms).slice(0,3).map(([pid,x])=>({p:playerById(pid),x})).filter(e=>e.p);
     f.innerHTML=`<div class="verdict">${good.length} bonne${good.length>1?"s":""} réponse${good.length>1?"s":""} sur ${rows.length}</div>
-      ${fast.length?`<div class="fast"><span>⚡ Les plus rapides :</span>${fast.map((e,k)=>`<span class="fp">${avatarHTML(e.p.avatar,e.p.name,34)}<b>${esc(e.p.name)}</b><small>${(e.x.ms/1000).toFixed(1).replace(".",",")} s</small></span>`).join("")}</div>`:""}
+      ${fast.length?`<div class="fast"><span>⚡ Les plus rapides :</span>${fast.map((e,k)=>`<span class="fp">${avatarHTML(e.p.avatar,e.p.name,52)}<b>${esc(e.p.name)}</b><small>${(e.x.ms/1000).toFixed(1).replace(".",",")} s</small></span>`).join("")}</div>`:""}
       <button class="btn ghost" id="bHub">Tableau des questions</button><button class="btn gold" id="bRk">Classement</button>
       ${(q.note||"").trim()?`<div class="hostnote" role="note"><span aria-hidden="true">👉</span><div>${esc(q.note.trim()).replace(/\n/g,"<br>")}</div></div>`:""}`;
     $("#bHub").onclick=()=>go("hub"); $("#bRk").onclick=()=>go("results");
@@ -672,10 +738,10 @@ function renderResults(quiet){
   const tied=e=>CFG.tieSpeed && e.points>0 && list.filter(x=>x.points===e.points).length>1;
   const fmtS=ms=>(ms/1000).toFixed(1).replace(".",",")+" s";
   app.innerHTML=`<section class="screen res"><h2>Le classement</h2>
-    ${list.length&&S.order.length?`<div class="podium">${order.map(i=>{ const e=top[i]; return `<div class="pod">${avatarHTML(e.p.avatar,e.p.name,e.rank===1?110:86,"margin:0 auto 6px;display:block;box-shadow:0 0 0 4px var(--gold)")}
+    ${list.length&&S.order.length?`<div class="podium">${order.map(i=>{ const e=top[i]; return `<div class="pod">${avatarHTML(e.p.avatar,e.p.name,e.rank===1?190:150,"margin:0 auto 6px;display:block;box-shadow:0 0 0 4px var(--gold)")}
       <div class="tn" style="font-size:clamp(18px,2vw,26px)">${esc(e.p.name)}</div><div class="tp">${ptsTxt(e.points)}${tied(e)?` <small style="color:var(--ice-dim)">· ⏱ ${fmtS(e.ms)}</small>`:""}</div>
       <div class="st" style="height:${H[e.rank]||70}px">${e.rank}</div></div>`; }).join("")}</div>
-    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,30)}${esc(e.p.name)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">⏱ ${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
+    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,48)}${esc(e.p.name)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">⏱ ${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
     ${list.some(tied)?`<p style="text-align:center;color:var(--ice-dim);margin:2vh 0 0">⏱ À points égaux, le plus rapide passe devant (temps cumulé sur ses bonnes réponses, appel à un ami non compté).</p>`:""}`
     :`<p style="text-align:center;color:var(--ice-dim)">Aucune question n'a encore été jouée.</p>`}
     <div class="row center" style="margin-top:3vh"><button class="btn ghost" id="bH">Tableau des questions</button><button class="btn gold" id="bC">Remerciements</button></div></section>`;
@@ -686,7 +752,7 @@ function renderCredits(){
   const all=S?S.players:[];
   app.innerHTML=`<section class="screen credits res">${emblemSVG("sm")}<h2>Merci d'avoir participé !</h2>
     ${hostsList().length?`<div class="row center">${hostsHTML(56)}</div>`:""}
-    <div class="cwall">${all.map(p=>`<div>${avatarHTML(p.avatar,p.name,64)}<br>${esc(p.name)}</div>`).join("")}</div>
+    <div class="cwall">${all.map(p=>`<div>${avatarHTML(p.avatar,p.name,110)}<br>${esc(p.name)}</div>`).join("")}</div>
     <div class="row center"><button class="btn ghost" id="bH">Accueil</button></div></section>`;
   $("#bH").onclick=()=>go("home"); play("applause"); play("generique");
 }
@@ -763,6 +829,7 @@ function cfgGeneral(b){
     <div class="mrow" style="grid-template-columns:72px 1fr 1fr">
     <button class="avb" id="host2Av" aria-label="Changer l'avatar du deuxième animateur" style="border:0;background:none;padding:0">${avatarHTML(CFG.host2.avatar,fullName(CFG.host2),64)}</button>
     <input class="inp" data-k="host2.first" placeholder="Prénom" aria-label="Prénom du deuxième animateur"><input class="inp" data-k="host2.last" placeholder="Nom" aria-label="Nom du deuxième animateur"></div></div>
+  ${libCard()}
   <div class="ccard"><h4>Règles</h4>
     <div class="grid3"><div class="f"><label for="g6">Points par défaut pour une bonne réponse sans joker</label><input class="inp" id="g6" type="number" min="1" max="1000" data-k="basePoints"><span class="hint">Utilisé pour les questions sans points personnalisés (onglet Questions).</span></div>
     <div class="f"><label for="g7">Points retirés par défaut par joker utilisé</label><input class="inp" id="g7" type="number" min="0" max="10" data-k="jokerCost"></div>
@@ -791,6 +858,7 @@ function cfgGeneral(b){
  if(k==="title") document.title=CFG.title||"Quiz"; if(k.startsWith("host.")) $("#hostAv").innerHTML=avatarHTML(CFG.host.avatar,fullName(CFG.host),64); if(k.startsWith("host2.")) $("#host2Av").innerHTML=avatarHTML(CFG.host2.avatar,fullName(CFG.host2),64); });
   $("#hostAv").onclick=()=>avatarPicker(CFG.host,()=>{ $("#hostAv").innerHTML=avatarHTML(CFG.host.avatar,fullName(CFG.host),64); });
   $("#host2Av").onclick=()=>avatarPicker(CFG.host2,()=>{ $("#host2Av").innerHTML=avatarHTML(CFG.host2.avatar,fullName(CFG.host2),64); });
+  bindLib(b,()=>{ const y=$(".cbody")?$(".cbody").scrollTop:0; cfgGeneral(b); if($(".cbody")) $(".cbody").scrollTop=y; });
 }
 const EMOJIS="😀 😎 🤓 🥳 😇 🤠 🧐 😺 🦊 🐻 🐼 🐨 🦁 🐯 🐸 🐵 🦉 🐧 🐙 🦄 🐝 🦋 🐬 🐳 🦀 🦭 🐢 🐉 🌵 🌻 ⚓ ⛵ 🏰 🎩 🎸 🚀 ⚡ 🔥 🍀 ⭐ 🎯 🏆 🍕 🥐 🦸 🧙 🧑‍🚀 🧑‍🍳 🏴‍☠️ 🧜".split(" ");
 const INICOL=["#3c49d6","#6b3bd1","#c0398a","#e07a2e","#1d9a8a","#2f86d6","#d64545","#2fae5f"];
@@ -800,20 +868,22 @@ function avatarPicker(person,done){
   const draw=()=>{
     const seeds=[...Array(12)].map(()=>rnd(1e6));
     pk.innerHTML=`<div class="pickp"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Avatar de ${esc(name||"ce participant")}</h3>${avatarHTML(person.avatar,name,64)}</div>
-    <div class="flab" style="margin-top:14px">Personnages</div><div class="pgrid">${seeds.map(s=>`<button data-g="${s}" aria-label="Personnage">${avatarHTML({kind:"gen",seed:s},"",60)}</button>`).join("")}</div>
+    ${CFG.avatarLib.some(a=>IMG[a.id])?`<div class="flab" style="margin-top:14px">Avatars préparés</div><div class="pgrid">${CFG.avatarLib.filter(a=>IMG[a.id]).map(a=>`<button data-lib="${a.id}" title="${esc(a.name)}" aria-label="Avatar préparé ${esc(a.name)}">${avatarHTML({kind:"img",src:IMG[a.id]},a.name,96)}</button>`).join("")}</div>`:""}
+    <div class="flab" style="margin-top:14px">Personnages</div><div class="pgrid">${seeds.map(s=>`<button data-g="${s}" aria-label="Personnage">${avatarHTML({kind:"gen",seed:s},"",96)}</button>`).join("")}</div>
     <button class="cb sm" id="apMore">Proposer d'autres personnages</button>
     <div class="flab" style="margin-top:14px">Émojis</div><div class="egrid">${EMOJIS.map(e=>`<button data-e="${e}" aria-label="${e}">${e}</button>`).join("")}</div>
-    <div class="flab">Initiales</div><div class="pgrid">${INICOL.map(c=>`<button data-i="${c}" aria-label="Initiales">${avatarHTML({kind:"ini",color:c},name,60)}</button>`).join("")}</div>
-    <div class="flab">Photo ou image</div><div class="row" style="margin:8px 0 16px"><label class="cb pri" style="cursor:pointer">Importer une image…<input type="file" accept="image/*" id="apF" class="sr"></label><span style="font-size:13px;color:var(--cfg-dim)">Recadrée en carré et réduite automatiquement.</span></div>
+    <div class="flab">Initiales</div><div class="pgrid">${INICOL.map(c=>`<button data-i="${c}" aria-label="Initiales">${avatarHTML({kind:"ini",color:c},name,80)}</button>`).join("")}</div>
+    <div class="flab">Photo ou image</div><div class="row" style="margin:8px 0 16px"><label class="cb pri" style="cursor:pointer">Importer une image…<input type="file" accept="image/*" id="apF" class="sr"></label><label class="chk" style="margin:0;font-size:13px"><input type="checkbox" id="apBg" checked> Retirer le fond blanc</label></div>
+    <p style="font-size:13px;color:var(--cfg-dim);margin:-8px 0 14px">L'image est affichée en entier, au format portrait (3:4) : idéal pour un personnage en pied comme un avatar « chibi ».</p>
     <div class="row" style="justify-content:flex-end"><button class="cb" id="apC">Fermer</button></div></div>`;
     const set=a=>{ person.avatar=a; saveCfg(); done(); pk.remove(); };
     pk.querySelectorAll("[data-g]").forEach(x=>x.onclick=()=>set({kind:"gen",seed:+x.dataset.g}));
+    pk.querySelectorAll("[data-lib]").forEach(x=>x.onclick=async()=>set({kind:"img",src:await blobToDataURL(IMGBLOB[x.dataset.lib])}));
     pk.querySelectorAll("[data-e]").forEach(x=>x.onclick=()=>set({kind:"emoji",v:x.dataset.e}));
     pk.querySelectorAll("[data-i]").forEach(x=>x.onclick=()=>set({kind:"ini",color:x.dataset.i}));
     $("#apMore",pk).onclick=draw; $("#apC",pk).onclick=()=>pk.remove();
-    $("#apF",pk).onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ const im=new Image(); im.onload=()=>{
-      const S=180, c=document.createElement("canvas"); c.width=c.height=S; const s=Math.min(im.width,im.height); c.getContext("2d").drawImage(im,(im.width-s)/2,(im.height-s)/2,s,s,0,0,S,S);
-      set({kind:"img",src:c.toDataURL("image/jpeg",.82)}); }; im.onerror=()=>toast("Image illisible : choisissez un fichier JPG, PNG ou WebP."); im.src=rd.result; }; rd.readAsDataURL(f); };
+    $("#apF",pk).onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
+      try{ set({kind:"img",src:await makeAvatarImage(f,{removeBg:$("#apBg",pk).checked})}); }catch(err){ toast("Image illisible : choisissez un fichier JPG, PNG ou WebP."); } };
   };
   draw(); document.body.appendChild(pk); pk.addEventListener("click",e=>{ if(e.target===pk) pk.remove(); });
 }
@@ -831,65 +901,91 @@ async function recrop(q,slot,forceRatio,step){
   if(single){ q.imgOrig=res.full?null:orig; q.imgCrop=res.full?null:res.crop; q.img=newId; }
   else { q.aOrig[slot]=res.full?null:orig; q.aCrop[slot]=res.full?null:res.crop; q.aImgs[slot]=newId; }
   if(cur!==newId && cur!==orig) removeImage(cur);
-  save(KEY_CFG,CFG); toast(res.full?"Image entière conservée":"Photo recadrée");
+  save(KEY_CFG,CFG); toast(res.full?"Photo d'origine conservée":"Cadrage enregistré");
   return res.full?"keep":res.crop.ratio;
 }
-const RATIOS=[["orig","Format d'origine"],["free","Libre"],["16:9","16:9 (large)"],["4:3","4:3"],["1:1","Carré"],["3:4","3:4 (portrait)"]];
+const RATIOS=[["orig","Format d'origine"],["16:9","16:9 (écran large)"],["3:2","3:2"],["4:3","4:3"],["1:1","Carré"],["4:5","4:5 (portrait)"],["3:4","3:4 (portrait)"]];
+const CROP_BG=[["blur","Photo floutée"],["#0a0c62","Bleu du jeu"],["#000000","Noir"],["#ffffff","Blanc"]];
+/* Framing editor: the frame (chosen format) stays still, the photo moves and zooms inside it.
+   Zooming out below "fill" shows the whole photo; the empty sides are filled with a blurred copy or a colour.
+   Stored as {v:2, ratio, k, px, py, bg}: k = photo width / frame width, (px,py) = photo centre in frame-width units. */
 function cropEditor(src,prev,ratioKey,title,force){
   return new Promise(resolve=>{
     const pk=document.createElement("div"); pk.className="pick"; pk.setAttribute("role","dialog"); pk.setAttribute("aria-label",title);
     pk.innerHTML=`<div class="pickp cropp"><h3 style="margin:0 0 4px">${esc(title)}</h3>
-      <p style="margin:0 0 10px;font-size:13px;color:var(--cfg-dim)">Faites glisser le cadre pour le déplacer, ses coins pour le redimensionner, ou utilisez le curseur.</p>
-      <div class="row" style="gap:6px;margin-bottom:10px">${RATIOS.map(([k,l])=>`<button class="cb sm" data-ratio="${k}">${l}</button>`).join("")}</div>
-      <div class="cropstage" id="cs"><img id="ci" alt="" draggable="false"><div class="cropbox" id="cb">${["nw","ne","sw","se"].map(h=>`<span class="ch ${h}" data-h="${h}"></span>`).join("")}<i class="cg"></i></div></div>
-      <div class="row" style="gap:10px;margin-top:10px"><label class="flab" style="display:flex;align-items:center;gap:8px;flex:1">Taille du cadre <input type="range" id="cz" min="15" max="100" step="1" style="flex:1"></label><span id="cinfo" style="font-size:13px;color:var(--cfg-dim)"></span></div>
-      <div class="row" style="justify-content:space-between;margin-top:14px"><button class="cb" id="cFull">Garder l'image entière</button>
-        <span class="row"><button class="cb" id="cNo">Annuler</button><button class="cb pri" id="cOk">Appliquer le recadrage</button></span></div></div>`;
+      <p style="margin:0 0 10px;font-size:13px;color:var(--cfg-dim)">Choisissez le format du cadre, puis faites glisser la photo et zoomez (curseur ou molette). En dézoomant, la photo entière tient dans le cadre : les bords vides sont remplis par le fond choisi.</p>
+      <div class="row" style="gap:6px;margin-bottom:10px"><span class="flab">Format</span>${RATIOS.map(([k,l])=>`<button class="cb sm" data-ratio="${k}" ${force&&k!==ratioKey?"disabled":""}>${l}</button>`).join("")}</div>
+      <div class="cropwrap" id="cw"><div class="cropframe" id="cf"><img class="cbg" id="cbg" alt="" draggable="false"><img class="cm" id="ci" alt="" draggable="false"><i class="cg"></i></div></div>
+      <div class="row" style="gap:10px;margin-top:10px">
+        <label class="flab" style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">Zoom <input type="range" id="cz" min="0" max="1000" step="1" style="flex:1"></label>
+        <button class="cb sm" id="cFit" title="La photo entière, dans le cadre">⤢ Tout voir</button><button class="cb sm" id="cCov" title="La photo remplit tout le cadre">⛶ Remplir le cadre</button><button class="cb sm" id="cCen">Centrer</button></div>
+      <div class="row" style="gap:6px;margin-top:8px"><span class="flab">Fond des bords</span>${CROP_BG.map(([k,l])=>`<button class="cb sm" data-bg="${k}">${k==="blur"?"":`<i class="sw" style="background:${k}"></i>`}${l}</button>`).join("")}<span id="cinfo" style="font-size:13px;color:var(--cfg-dim);margin-left:auto"></span></div>
+      <div class="row" style="justify-content:space-between;margin-top:14px"><button class="cb" id="cFull">Garder la photo d'origine</button>
+        <span class="row"><button class="cb" id="cNo">Annuler</button><button class="cb pri" id="cOk">Valider le cadrage</button></span></div></div>`;
     document.body.appendChild(pk);
-    const img=$("#ci",pk), box=$("#cb",pk), stage=$("#cs",pk);
-    let W=0,H=0,R=null,ratio=ratioKey, rc={x:0,y:0,w:1,h:1};
-    const done=v=>{ pk.remove(); resolve(v); };
-    const ratioVal=k=>k==="orig"?W/H:k==="free"?null:(([a,b])=>a/b)(k.split(":").map(Number));
-    const clamp=()=>{ rc.w=Math.min(rc.w,W); rc.h=Math.min(rc.h,H); rc.x=Math.max(0,Math.min(W-rc.w,rc.x)); rc.y=Math.max(0,Math.min(H-rc.h,rc.y)); };
-    const maxFor=r=>r? (W/H>r?{w:H*r,h:H}:{w:W,h:W/r}) : {w:W,h:H};
-    const draw=()=>{ const s=img.clientWidth/W; Object.assign(box.style,{left:rc.x*s+"px",top:rc.y*s+"px",width:rc.w*s+"px",height:rc.h*s+"px"});
-      $("#cinfo",pk).textContent=`${Math.round(rc.w)} × ${Math.round(rc.h)} px`;
-      const m=maxFor(R); $("#cz",pk).value=Math.round(Math.min(100,Math.max(rc.w/m.w,rc.h/m.h)*100));
-      pk.querySelectorAll("[data-ratio]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.ratio===ratio))); };
-    const setRatio=(k,keep)=>{ ratio=k; R=ratioVal(k); if(!R){ draw(); return; }
-      const cx=rc.x+rc.w/2, cy=rc.y+rc.h/2, m=maxFor(R), sc=keep?Math.min(1,Math.max(rc.w/m.w,rc.h/m.h)):1;
-      rc.w=m.w*sc; rc.h=m.h*sc; rc.x=cx-rc.w/2; rc.y=cy-rc.h/2; clamp(); draw(); };
-    img.onload=()=>{ W=img.naturalWidth; H=img.naturalHeight;
-      if(prev && prev.w){ rc={x:prev.x*W,y:prev.y*H,w:prev.w*W,h:prev.h*H}; ratio=prev.ratio||ratioKey; R=ratioVal(ratio); clamp(); if(force&&ratio!==ratioKey) setRatio(ratioKey,true); else draw(); }
-      else { rc={x:0,y:0,w:W,h:H}; setRatio(ratioKey,false); } };
-    img.src=src;
-    pk.querySelectorAll("[data-ratio]").forEach(b=>b.onclick=()=>setRatio(b.dataset.ratio,true));
-    $("#cz",pk).oninput=e=>{ const m=maxFor(R), f=+e.target.value/100, cx=rc.x+rc.w/2, cy=rc.y+rc.h/2;
-      if(R){ rc.w=m.w*f; rc.h=m.h*f; } else { const k=f/Math.max(rc.w/W,rc.h/H); rc.w=Math.min(W,rc.w*k); rc.h=Math.min(H,rc.h*k); }
-      rc.x=cx-rc.w/2; rc.y=cy-rc.h/2; clamp(); draw(); };
-    // dragging: move the frame, or resize it from a corner (keeping the chosen format)
-    let drag=null;
-    stage.addEventListener("pointerdown",e=>{ const s=img.clientWidth/W, h=e.target.dataset&&e.target.dataset.h;
-      if(!h && !box.contains(e.target)) return;
-      e.preventDefault(); stage.setPointerCapture(e.pointerId); drag={h,sx:e.clientX,sy:e.clientY,r0:{...rc},s}; });
-    stage.addEventListener("pointermove",e=>{ if(!drag) return; const dx=(e.clientX-drag.sx)/drag.s, dy=(e.clientY-drag.sy)/drag.s, r0=drag.r0;
-      if(!drag.h){ rc.x=r0.x+dx; rc.y=r0.y+dy; clamp(); return draw(); }
-      const left=drag.h.includes("w"), top=drag.h.includes("n"), MIN=40;
-      let w=Math.max(MIN,r0.w+(left?-dx:dx)), h=Math.max(MIN,r0.h+(top?-dy:dy));
-      if(R){ if(Math.abs(dx)>Math.abs(dy)) h=w/R; else w=h*R; }
-      const ax=left?r0.x+r0.w:r0.x, ay=top?r0.y+r0.h:r0.y;              // the opposite corner stays put
-      const maxW=left?ax:W-ax, maxH=top?ay:H-ay;
-      if(w>maxW){ w=maxW; if(R) h=w/R; } if(h>maxH){ h=maxH; if(R) w=h*R; }
-      rc={x:left?ax-w:ax,y:top?ay-h:ay,w,h}; draw(); });
-    const end=()=>{ drag=null; }; stage.addEventListener("pointerup",end); stage.addEventListener("pointercancel",end);
-    addEventListener("resize",draw);
+    const img=$("#ci",pk), bgi=$("#cbg",pk), frame=$("#cf",pk), wrap=$("#cw",pk);
+    let W=0,H=0,A=1,R=1,ratio=ratioKey,bg="blur",k=1,px=.5,py=.5,FW=600, freeR=null;
+    const done=v=>{ removeEventListener("resize",layout); pk.remove(); resolve(v); };
+    const ratioVal=key=>key==="orig"?W/H:key==="free"?(freeR||W/H):(([a,b])=>a/b)(key.split(":").map(Number));
+    const FH=()=>1/R, kFit=()=>Math.min(1,FH()/A), kCov=()=>Math.max(1,FH()/A), kMin=()=>kFit()*.5, kMax=()=>kCov()*4;
+    // per axis: a photo larger than the frame must cover it, a smaller one stays inside it
+    const clampAxis=(c,d,f)=>d>=f?Math.min(d/2,Math.max(f-d/2,c)):Math.min(f-d/2,Math.max(d/2,c));
+    const clamp=()=>{ k=Math.max(kMin(),Math.min(kMax(),k)); px=clampAxis(px,k,1); py=clampAxis(py,k*A,FH()); };
+    const sliderFromK=()=>Math.round(1000*Math.log(k/kMin())/Math.log(kMax()/kMin()));
+    function layout(){
+      const avail=Math.min(wrap.clientWidth-28||860,860), maxH=Math.max(220,innerHeight*.5);
+      FW=Math.max(160,Math.min(avail,maxH*R)); frame.style.width=FW+"px"; frame.style.height=FW/R+"px"; draw(); }
+    function draw(){
+      Object.assign(img.style,{width:k*FW+"px",height:k*A*FW+"px",left:(px-k/2)*FW+"px",top:(py-k*A/2)*FW+"px"});
+      frame.style.background=bg==="blur"?"#222":bg; bgi.style.display=bg==="blur"?"":"none";
+      $("#cz",pk).value=sliderFromK();
+      const full=k>=kCov()-1e-6;
+      $("#cinfo",pk).textContent=full?"La photo remplit le cadre":(k<=kFit()+1e-6?"Photo entière visible":"Bords complétés par le fond");
+      pk.querySelectorAll("[data-ratio]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.ratio===ratio)));
+      pk.querySelectorAll("[data-bg]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.bg===bg))); }
+    const fit=()=>{ k=kFit(); px=.5; py=FH()/2; clamp(); draw(); };
+    const cover=()=>{ k=kCov(); px=.5; py=FH()/2; clamp(); draw(); };
+    const setRatio=key=>{ ratio=key; R=ratioVal(key); layout(); fit(); };
+    img.onload=()=>{ W=img.naturalWidth; H=img.naturalHeight; A=H/W;
+      if(prev && prev.v===2){ ratio=force?ratioKey:(prev.ratio||ratioKey); R=ratioVal(ratio); bg=prev.bg||"blur"; layout();
+        if(force && prev.ratio!==ratioKey) fit(); else { k=prev.k; px=prev.px; py=prev.py; clamp(); draw(); } }
+      else if(prev && prev.w){                                     // older rectangular crop: show the same area
+        freeR=(prev.w*W)/(prev.h*H); ratio=force?ratioKey:(prev.ratio&&prev.ratio!=="free"?prev.ratio:"free"); R=ratioVal(ratio); layout();
+        k=1/prev.w; px=.5+k/2-(prev.x+prev.w/2)*k; py=FH()/2+k*A/2-(prev.y+prev.h/2)*k*A; clamp(); draw(); }
+      else { R=ratioVal(ratio); layout(); fit(); } };
+    bgi.src=src; img.src=src;
+    addEventListener("resize",layout);
+    pk.querySelectorAll("[data-ratio]").forEach(b=>b.onclick=()=>setRatio(b.dataset.ratio));
+    pk.querySelectorAll("[data-bg]").forEach(b=>b.onclick=()=>{ bg=b.dataset.bg; draw(); });
+    $("#cFit",pk).onclick=fit; $("#cCov",pk).onclick=cover; $("#cCen",pk).onclick=()=>{ px=.5; py=FH()/2; clamp(); draw(); };
+    // zoom keeping a point of the frame still (the centre, or the mouse)
+    const zoomTo=(nk,mx=.5,my=FH()/2)=>{ nk=Math.max(kMin(),Math.min(kMax(),nk)); const u=(mx-px)/k, v=(my-py)/(k*A); k=nk; px=mx-u*k; py=my-v*k*A; clamp(); draw(); };
+    $("#cz",pk).oninput=e=>{ const t=+e.target.value/1000; let nk=kMin()*Math.pow(kMax()/kMin(),t);
+      for(const m of [kFit(),kCov()]) if(Math.abs(Math.log(nk/m))<.03) nk=m;       // small magnets on "whole photo" and "fill"
+      zoomTo(nk); };
+    frame.addEventListener("wheel",e=>{ e.preventDefault(); const r=frame.getBoundingClientRect(); zoomTo(k*Math.exp(-e.deltaY*.0015),(e.clientX-r.left)/FW,(e.clientY-r.top)/FW); },{passive:false});
+    const pts=new Map(); let last=null;
+    frame.addEventListener("pointerdown",e=>{ e.preventDefault(); frame.setPointerCapture(e.pointerId); pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); last=null; frame.classList.add("drag"); });
+    frame.addEventListener("pointermove",e=>{ if(!pts.has(e.pointerId)) return; const p0=pts.get(e.pointerId); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(pts.size===1){ px+=(e.clientX-p0.x)/FW; py+=(e.clientY-p0.y)/FW; clamp(); draw(); }
+      else if(pts.size===2){ const [a,b]=[...pts.values()], d=Math.hypot(a.x-b.x,a.y-b.y), r=frame.getBoundingClientRect();
+        if(last) zoomTo(k*d/last,((a.x+b.x)/2-r.left)/FW,((a.y+b.y)/2-r.top)/FW); last=d; } });
+    const up=e=>{ pts.delete(e.pointerId); last=null; if(!pts.size) frame.classList.remove("drag"); };
+    frame.addEventListener("pointerup",up); frame.addEventListener("pointercancel",up);
     $("#cNo",pk).onclick=()=>done(null);
     $("#cFull",pk).onclick=()=>done({full:true,crop:{ratio:"orig"}});
     $("#cOk",pk).onclick=()=>{
-      if(rc.w>=W-1 && rc.h>=H-1) return done({full:true,crop:{ratio}});
-      const s=Math.min(1,1600/Math.max(rc.w,rc.h)), c=document.createElement("canvas"); c.width=Math.round(rc.w*s); c.height=Math.round(rc.h*s);
-      const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(img,rc.x,rc.y,rc.w,rc.h,0,0,c.width,c.height);
-      c.toBlob(blob=>done({blob,crop:{x:rc.x/W,y:rc.y/H,w:rc.w/W,h:rc.h/H,ratio}}),"image/jpeg",.88); };
+      const crop={v:2,ratio,k,px,py,bg};
+      if(ratio==="orig" && Math.abs(k-1)<1e-3 && Math.abs(px-.5)<1e-3 && Math.abs(py-FH()/2)<1e-3) return done({full:true,crop});
+      const OW=R>=1?1600:Math.round(1600*R), OH=Math.round(OW/R);
+      const c=document.createElement("canvas"); c.width=OW; c.height=OH; const g=c.getContext("2d"); g.imageSmoothingQuality="high";
+      if(bg==="blur"){ // blurred fill: the photo drawn tiny then enlarged (works in every browser), slightly darkened
+        const sw=36, sh=Math.max(1,Math.round(36/R)), t=document.createElement("canvas"); t.width=sw; t.height=sh; const tg=t.getContext("2d");
+        const kc=kCov(); tg.drawImage(img,(.5-kc/2)*sw,(FH()/2-kc*A/2)*sw,kc*sw,kc*A*sw);
+        g.drawImage(t,0,0,OW,OH); g.fillStyle="rgba(0,0,0,.22)"; g.fillRect(0,0,OW,OH); }
+      else { g.fillStyle=bg; g.fillRect(0,0,OW,OH); }
+      g.drawImage(img,(px-k/2)*OW,(py-k*A/2)*OW,k*OW,k*A*OW);
+      c.toBlob(blob=>done({blob,crop}),"image/jpeg",.88); };
     pk.addEventListener("keydown",e=>{ if(e.key==="Escape"){ e.stopPropagation(); done(null); } });
   });
 }
