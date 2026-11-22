@@ -1,0 +1,14 @@
+{
+  "name": "qui-veut-gagner-des-applaudissements",
+  "version": "1.0.0",
+  "description": "Quiz « Qui veut gagner des applaudissements ? » en ligne : écran projeté + téléphones des joueurs",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
