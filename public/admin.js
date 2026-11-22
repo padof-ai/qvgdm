@@ -41,6 +41,9 @@ function normalizeConfig(c){
   o.autoLib=!(c&&c.autoLib===false);
   o.tieSpeed=!(c&&c.tieSpeed===false);
   o.jokerSounds=!(c&&c.jokerSounds===false);
+  o.streakBonus=!!(c&&c.streakBonus);
+  o.reactions=!(c&&c.reactions===false);
+  o.raceEvery=[0,2,3,4,5].includes(+(c&&c.raceEvery))?+c.raceEvery:(c&&c.raceEvery===0?0:3);
   o.basePoints=Math.max(1,+o.basePoints||3); o.jokerCost=Math.max(0,o.jokerCost==null?1:+o.jokerCost);
   o.questions=Array.isArray(o.questions)?o.questions.map(q=>({id:q.id||uid("q"),text:String(q.text||""),answers:[0,1,2,3].map(i=>String((q.answers||[])[i]||"")),
     correct:Math.min(3,Math.max(0,+q.correct||0)), label:String(q.label||""), note:String(q.note||""),
@@ -96,7 +99,15 @@ const SFX={
   hangup(){ noise(0,.06,.25,900,1); for(let i=0;i<3;i++) tone(440,.35+i*.5,.25,"sine",.12); return 1.9; },
   applause(d=3){ for(let i=0;i<d*30;i++) noise(i/30+Math.random()*.02,.06,.05+Math.random()*.08,1800+Math.random()*2500,1.2); },
   phone(){ for(let r=0;r<2;r++) for(let i=0;i<10;i++){ tone(440,r*1.6+i*.05,.05,"sine",.12); tone(480,r*1.6+i*.05,.05,"sine",.12); } },
-  intro(){ tone(196,0,.5,"sawtooth",.06); tone(294,.25,.5,"sawtooth",.06); tone(392,.5,1.2,"sawtooth",.07); tone(98,0,1.8,"sine",.2); }
+  intro(){ tone(196,0,.5,"sawtooth",.06); tone(294,.25,.5,"sawtooth",.06); tone(392,.5,1.2,"sawtooth",.07); tone(98,0,1.8,"sine",.2); },
+  pop(){ tone(520,0,.09,"sine",.16,980); tone(1300,.07,.08,"triangle",.07); },
+  hop(){ tone(660,0,.07,"triangle",.07,990); },
+  run(){ for(let i=0;i<10;i++) tone(300+i*40,i*.06,.05,"triangle",.05); },
+  // drum roll (d seconds) then cymbal
+  drum(d=1.8){ for(let i=0;i<d*22;i++) noise(i/22,.05,.05+.1*i/(d*22),260,1.4); tone(70,0,d,"sine",.05); return d; },
+  cymbal(){ noise(0,1.2,.22,6000,.6); noise(0,.3,.25,2000,.8); tone(110,0,.4,"sine",.2,60); },
+  fanfare(){ [523,659,784,1047,784,1047].forEach((f,i)=>tone(f,i*.13,i===5?.9:.2,"triangle",.17)); tone(262,0,1.4,"sine",.12); },
+  whoosh(){ noise(0,.5,.12,1500,.5); }
 };
 
 /* ================= Sounds (played on the projected PC only) ================= */
@@ -265,7 +276,7 @@ async function admin(action, extra){
   if(r.unauthorized){ ADMIN_KEY=""; try{ localStorage.removeItem(KEY_ADMIN); }catch(e){} renderLogin("Mot de passe incorrect ou modifié."); }
   return r;
 }
-function serverSettings(){ return { jokers:CFG.jokers, jokerScope:CFG.jokerScope, phoneSec:CFG.phoneSec, autoClose:CFG.autoClose, tieSpeed:CFG.tieSpeed, jokerSounds:CFG.jokerSounds }; }
+function serverSettings(){ return { jokers:CFG.jokers, jokerScope:CFG.jokerScope, phoneSec:CFG.phoneSec, autoClose:CFG.autoClose, tieSpeed:CFG.tieSpeed, jokerSounds:CFG.jokerSounds, streakBonus:CFG.streakBonus, reactions:CFG.reactions, title:CFG.title||"", subtitle:CFG.subtitle||"" }; }
 let syncT; function syncSettings(){ clearTimeout(syncT); syncT=setTimeout(()=>{ if(connected) admin("settings",{settings:serverSettings()}); },200); }
 
 /* ---------------------------------------------------------------- login */
@@ -289,7 +300,7 @@ function start(){
   es=new EventSource(`/api/stream?role=admin&key=${encodeURIComponent(ADMIN_KEY)}`);
   es.onopen=()=>{ connected=true; setNet(true); admin("hello",{settings:serverSettings()}); };
   es.onerror=()=>{ connected=false; setNet(false); };
-  es.onmessage=e=>{ const m=JSON.parse(e.data); if(m.type==="state") onState(m.state); };
+  es.onmessage=e=>{ const m=JSON.parse(e.data); if(m.type==="state") onState(m.state); else if(m.type==="react") floatReaction(m); };
 }
 function setNet(ok){ const n=$("#net"); if(n){ n.hidden=ok; } }
 let snapT=null, lastSnapSig="";
@@ -314,6 +325,7 @@ async function onState(st){
   if(sig!==lastSnapSig){ lastSnapSig=sig; clearTimeout(snapT); snapT=setTimeout(async()=>{ const r=await admin("snapshot"); if(r.ok&&r.snapshot) save(KEY_SNAP,r.snapshot); },800); }
   if(prev && prev.players.length<S.players.length && (screen==="home"||screen==="hub")) SFX.win();
   update(prev);
+  syncClap();
   autoAssignAvatars();
 }
 /* ============ Avatars prepared in advance (one picture per participant, matched on the first name) ============ */
@@ -378,8 +390,8 @@ function bindLib(b,redraw){
 }
 // Light refresh of the current screen; full renders only when the situation changes
 function update(prev){
-  if(screen==="home"){ const w=$("#wall"); if(w){ w.innerHTML=wallHTML(); bindWall(); const c=$("#nPl"); if(c) c.textContent=plCount(); return; } }
-  if(screen==="hub"){ return renderHub(); }
+  if(screen==="home"){ const crowd=!!$(".home3"); if(crowd!==!!S.players.length) return renderHome(); if(crowd){ syncWall(); const c=$("#nPl"); if(c) c.textContent=plCount(); return; } const w=$("#wall"); if(w){ w.innerHTML=wallHTML(); bindWall(); const c=$("#nPl"); if(c) c.textContent=plCount(); return; } }
+  if(screen==="hub"){ const sig=hubSig(); if(sig===lastHubSig) return; lastHubSig=sig; return renderHub(); }
   if(screen==="intro"){ const c=$("#nOn"); if(c) c.textContent=onlineCount(); return; }
   if(screen==="question"){
     const ph=S.phase, pph=prev&&prev.phase;
@@ -387,8 +399,10 @@ function update(prev){
     if(ph!==pph || !prev || !prev.cur || prev.cur.qid!==S.cur.qid) return phaseChanged(pph);
     updateLive(); return;
   }
-  if(screen==="results" && prev && JSON.stringify(prev.ranking)!==JSON.stringify(S.ranking)) return renderResults(true);
+  if(screen==="results" && podiumDone() && prev && JSON.stringify(prev.ranking)!==JSON.stringify(S.ranking)) return renderResults(true);
 }
+let lastHubSig="";
+const hubSig=()=>JSON.stringify([S.players.map(p=>p.pid+p.online+JSON.stringify(p.avatar)),S.order,Object.values(S.results).map(r=>r.at+":"+Object.values(r.rows).map(x=>x.points).join()),S.banned.length]);
 const onlineCount = () => S ? S.players.filter(p=>p.online).length : 0;
 const plCount = () => { const n=S?S.players.length:0; return `${n} joueur${n>1?"s":""}`; };
 function wallHTML(){
@@ -410,7 +424,7 @@ async function excludePlayer(pid){
 function playerCard(pid){
   const draw=ov=>{
     const p=playerById(pid); if(!p){ ov._close(); return; }
-    ov.querySelector(".ovp").innerHTML=`<div style="text-align:center">${avatarHTML(p.avatar,p.name,220)}<h3 style="margin-top:10px">${esc(p.name)}</h3>
+    ov.querySelector(".ovp").innerHTML=`<div style="text-align:center">${avatarHTML(p.avatar,p.name,220,"","alive")}<h3 style="margin-top:10px">${esc(p.name)}</h3>
       <p>${p.online?"● connecté":"○ déconnecté"} · ${ptsTxt(p.score?p.score.points:0)}</p></div>
       <div class="row center" style="margin-top:8px"><button class="btn" id="cAv">Changer l'avatar</button><button class="btn ghost" id="cEx">Exclure du jeu</button><button class="btn gold" id="cX">Fermer</button></div>`;
     $("#cAv",ov).onclick=()=>pickPlayerAvatar(pid,()=>draw(ov));
@@ -428,10 +442,11 @@ function go(s){
     if((prev==="intro"||prev==="question") && s!=="intro" && s!=="question"){ stop("question",600); endSuspense(); }
     if(s==="hub") play("hub");
   }
-  if(["home","hub","results","credits"].includes(s)) admin("show",{screen:s});
+  if(["home","hub","credits","race"].includes(s)) admin("show",{screen:s});
+  if(s==="results") admin("show",{screen:s,hold:!podiumDone()});
   render(); app.scrollTop=0;
 }
-function render(){ ({home:renderHome,hub:renderHub,intro:renderIntro,question:renderQuestion,results:renderResults,credits:renderCredits})[screen](); }
+function render(){ ({home:renderHome,hub:renderHub,intro:renderIntro,question:renderQuestion,results:renderResults,credits:renderCredits,race:renderRace})[screen](); }
 
 function hostsList(){ return [CFG.host, CFG.host2.on?CFG.host2:null].filter(h=>h&&(h.first||h.last)); }
 function hostsHTML(size){ const hs=hostsList(); if(!hs.length) return "";
@@ -440,6 +455,7 @@ function qrCard(big){
   return `<div class="qrcard ${big?"big":""}"><img src="${qrSrc()}" alt="QR code pour rejoindre la partie"><div class="qrtxt">${big?`<b>Scannez pour jouer !</b>`:""}<span class="url">${esc(JOIN_URL.replace(/^https?:\/\//,"").replace(/\/$/,""))}</span></div></div>`;
 }
 function renderHome(){
+  if(S && S.players.length) return renderHomeCrowd();
   app.innerHTML=`<section class="screen home2">
     <div class="hleft">${emblemSVG()}
       ${CFG.tagline?`<div class="tag">${esc(CFG.tagline)}</div>`:""}
@@ -456,6 +472,7 @@ function renderHome(){
 
 function renderHub(){
   if(!S){ app.innerHTML=`<section class="screen home"><p>Connexion au serveur…</p></section>`; return; }
+  lastHubSig=hubSig();
   const nQ=CFG.questions.length, played=CFG.questions.filter(q=>resultOf(q)).length;
   const DIFF=["","Facile","Moyenne","Difficile","Très difficile"];
   const diffBadge=q=>CFG.showDifficulty?`<span class="diff d${q.difficulty}" title="Difficulté ${q.difficulty}/4 : ${DIFF[q.difficulty]}" aria-label="Difficulté ${q.difficulty} sur 4">${[1,2,3,4].map(k=>`<i class="${k<=q.difficulty?"on":""}"></i>`).join("")}</span>`:"";
@@ -489,8 +506,10 @@ function renderHub(){
         <button class="btn" id="bRand" ${played>=nQ?"disabled":""}>Question au hasard</button>
         <button class="btn gold" id="bRes" ${played?"":"disabled"}>Classement</button>
       </div>
+      <div class="row center"><button class="btn ghost" id="bRace" ${S.order.length?"":"disabled"}>📊 La course</button><button class="btn ghost" id="bClap">👏 Applaudir</button></div>
       <div class="row center"><button class="btn ghost" id="bHome">Accueil</button><button class="btn ghost" id="bReset">Nouvelle partie</button></div>
     </div></div></section>`;
+  $("#bRace").onclick=()=>go("race"); $("#bClap").onclick=launchClap;
   fitButtons();
   app.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>playQuestion(b.dataset.q));
   app.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{ const q=CFG.questions.find(x=>x.id===b.dataset.p); if(q&&resultOf(q)) showRound(q); });
@@ -687,7 +706,7 @@ function renderQuestion(){
   if(ph==="question"){ if(!isPlaying("question")) play("question",{restart:false}); startTimer(); }
 }
 // Once answers are closed, each player's avatar appears in front of the answer they chose
-function renderPicks(animate){
+function renderPicks(animate,from){
   const pk=S&&S.cur&&S.cur.picks; if(!pk) return;
   const by=[[],[],[],[]]; Object.entries(pk).forEach(([pid,c])=>{ const p=playerById(pid); if(p&&by[c]) by[c].push(p); });
   const MAX=9; let k=0;
@@ -695,10 +714,13 @@ function renderPicks(animate){
   app.querySelectorAll("[data-pk]").forEach(el=>{
     const ps=by[+el.dataset.pk], extra=ps.length-MAX;
     el.title=ps.map(p=>p.name).join(", ");
-    el.innerHTML=ps.slice(0,extra>0?MAX-1:MAX).map(p=>`<span class="pk" style="${animate?`animation-delay:${(k++)*70}ms`:"animation:none"}">${avatarHTML(p.avatar,p.name,PK)}</span>`).join("")+(extra>0?`<span class="pkmore">+${extra+1}</span>`:"");
+    const rev=S.phase==="revealed", good=+el.dataset.pk===CUR.q.correct;
+    el.innerHTML=ps.slice(0,extra>0?MAX-1:MAX).map(p=>`<span class="pk" data-pid="${p.pid}" style="${animate&&!from?`animation-delay:${(k++)*70}ms`:"animation:none"}">${avatarHTML(p.avatar,p.name,PK,"",rev?(good?"jump loop":"sad"):"alive")}</span>`).join("")+(extra>0?`<span class="pkmore">+${extra+1}</span>`:"");
   });
+  if(animate && from) runToAnswers(from);
 }
 function updateLive(){
+  if(S.phase==="question") syncBand();
   const c=$("#cnt"); if(!c||!S.cur) return;
   const on=onlineCount(), n=S.cur.answered;
   c.textContent = S.phase==="revealed" ? "" : `${n}/${Math.max(on,n)} réponse${n>1?"s":""}`;
@@ -708,10 +730,10 @@ function updateLive(){
 }
 function footer(){
   const f=$("#qfoot"); if(!f) return; const ph=S.phase, q=CUR.q;
-  if(ph==="question"){ f.innerHTML=`<button class="btn gold" id="bClose">Clore les réponses</button><button class="btn ghost" id="bCancel">Annuler la question</button>`;
+  if(ph==="question"){ f.innerHTML=`<div class="aband" id="aband" aria-label="Ont déjà répondu"></div><button class="btn gold" id="bClose">Clore les réponses</button><button class="btn ghost" id="bCancel">Annuler la question</button>`; bandShown.clear(); syncBand();
     $("#bClose").onclick=()=>admin("close");
     $("#bCancel").onclick=async()=>{ if(await ask("Annuler cette question ? Les réponses déjà données sont perdues.",{ok:"Annuler la question"})){ await admin("cancel"); go("hub"); } };
-  } else if(ph==="closed"){ f.innerHTML=`<div class="verdict" style="font-size:clamp(20px,2.2vw,30px)">Les réponses sont closes…</div><button class="btn gold" id="bRev">Révéler la bonne réponse</button>`;
+  } else if(ph==="closed"){ f.innerHTML=`<div class="verdict" style="font-size:clamp(20px,2.2vw,30px)">${pronostic()}</div><button class="btn gold" id="bRev">Révéler la bonne réponse</button>`;
     $("#bRev").onclick=()=>{ $("#bRev").disabled=true; admin("reveal"); };
   } else if(ph==="revealed"){
     const r=S.results[q.id], rows=r?Object.entries(r.rows):[], good=rows.filter(([,x])=>x.ok);
@@ -720,7 +742,7 @@ function footer(){
       ${fast.length?`<div class="fast"><span>⚡ Les plus rapides :</span>${fast.map((e,k)=>`<span class="fp">${avatarHTML(e.p.avatar,e.p.name,52)}<b>${esc(e.p.name)}</b><small>${(e.x.ms/1000).toFixed(1).replace(".",",")} s</small></span>`).join("")}</div>`:""}
       <button class="btn ghost" id="bHub">Tableau des questions</button><button class="btn gold" id="bRk">Classement</button>
       ${(q.note||"").trim()?`<div class="hostnote" role="note"><span aria-hidden="true">👉</span><div>${esc(q.note.trim()).replace(/\n/g,"<br>")}</div></div>`:""}`;
-    $("#bHub").onclick=()=>go("hub"); $("#bRk").onclick=()=>go("results");
+    $("#bHub").onclick=()=>go(raceDue()?"race":"hub"); $("#bRk").onclick=()=>go("results");
   }
 }
 let revealT=null;
@@ -729,8 +751,8 @@ function phaseChanged(pph){
   const ph=S.phase;
   if(ph==="closed"){ clearInterval(timerInt); stop("question",400); play("suspense");
     if(CFG.revealMode==="auto") revealT=setTimeout(()=>admin("reveal"),Math.max(1,Math.min(10,+CFG.suspenseSec||6))*1000);
-    const t=$("#timer"); if(t) t.remove(); updateLive(); footer(); renderPicks(true); return; }
-  if(ph==="revealed"){ endSuspense(); stop("question",200); play("good"); renderQuestion(); const r=S.results[CUR.q.id]; if(r&&Object.values(r.rows).some(x=>x.ok)) confetti(1800); return; }
+    const t=$("#timer"); if(t) t.remove(); const from=bandPositions(); updateLive(); footer(); renderPicks(true,from); return; }
+  if(ph==="revealed"){ endSuspense(); stop("question",200); play("good"); renderQuestion(); const r=S.results[CUR.q.id]; if(r&&Object.values(r.rows).some(x=>x.ok)) confetti(1800); setTimeout(()=>app.querySelectorAll(".pk .av.jump").forEach(a=>sparkle(a.closest(".pk"))),150); return; }
   if(ph==="question"){ renderQuestion(); return; }
 }
 function startTimer(){
@@ -746,30 +768,61 @@ function startTimer(){
 function zoom(src){ const lb=document.createElement("div"); lb.className="lightbox"; lb.innerHTML=`<img src="${esc(src)}" alt="Illustration agrandie">`; lb.onclick=()=>lb.remove(); document.body.appendChild(lb); }
 
 /* ---------------------------------------------------------- ranking */
+let podiumSeen=null;          // gameId+order when the podium was last revealed
+const podiumDone=()=>podiumSeen===(S?S.gameId+":"+S.order.join():"");
+let podiumRun=0;
 function renderResults(quiet){
   const list=(S?S.ranking:[]).map(e=>({...e,p:playerById(e.pid)})).filter(e=>e.p);
   const top=list.slice(0,3), order=[1,0,2].filter(i=>top[i]);
-  const H={1:150,2:105,3:80};
+  const H={1:120,2:86,3:62}, SZ={1:250,2:205,3:180};
   const tied=e=>CFG.tieSpeed && e.points>0 && list.filter(x=>x.points===e.points).length>1;
   const fmtS=ms=>(ms/1000).toFixed(1).replace(".",",")+" s";
-  app.innerHTML=`<section class="screen res"><h2>Le classement</h2>
-    ${list.length&&S.order.length?`<div class="podium">${order.map(i=>{ const e=top[i]; return `<div class="pod">${avatarHTML(e.p.avatar,e.p.name,e.rank===1?190:150,"margin:0 auto 6px;display:block;box-shadow:0 0 0 4px var(--gold)")}
-      <div class="tn" style="font-size:clamp(18px,2vw,26px)">${esc(e.p.name)}</div><div class="tp">${ptsTxt(e.points)}${tied(e)?` <small style="color:var(--ice-dim)">· ⏱ ${fmtS(e.ms)}</small>`:""}</div>
-      <div class="st" style="height:${H[e.rank]||70}px">${e.rank}</div></div>`; }).join("")}</div>
-    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,48)}${esc(e.p.name)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">⏱ ${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
-    ${list.some(tied)?`<p style="text-align:center;color:var(--ice-dim);margin:2vh 0 0">⏱ À points égaux, le plus rapide passe devant (temps cumulé sur ses bonnes réponses, appel à un ami non compté).</p>`:""}`
+  const fire=e=>e.streak>=3?` <span class="fire" title="${e.streak} bonnes réponses d'affilée">🔥${e.streak}</span>`:"";
+  const seq=!podiumDone() && list.length && S.order.length;
+  app.innerHTML=`<section class="screen res" id="resScr"><h2>Le classement</h2>
+    ${list.length&&S.order.length?`<div class="podium">${order.map(i=>{ const e=top[i]; return `<div class="pod ${seq?"hidden":""}" data-rank="${e.rank}" data-i="${i}">
+      <div class="podav">${e.rank===1?`<div class="crown">👑</div>`:""}${avatarHTML(e.p.avatar,e.p.name,SZ[i+1]||170,"margin:0 auto 6px;display:block;box-shadow:0 0 0 4px var(--gold)",seq?"":"dance")}</div>
+      <div class="tn" style="font-size:clamp(20px,2.2vw,30px)">${esc(e.p.name)}${fire(e)}</div><div class="tp">${ptsTxt(e.points)}${tied(e)?` <small style="color:var(--ice-dim)">· ⏱ ${fmtS(e.ms)}</small>`:""}</div>
+      <div class="st" style="height:${H[i+1]||50}px">${e.rank}</div></div>`; }).join("")}</div>
+    <div class="ranking cols ${seq?"hidden":""}" id="rkRest">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,52,"","alive")}${esc(e.p.name)}${fire(e)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">⏱ ${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
+    ${list.some(tied)?`<p class="${seq?"hidden":""} tienote" style="text-align:center;color:var(--ice-dim);margin:2vh 0 0">⏱ À points égaux, le plus rapide passe devant (temps cumulé sur ses bonnes réponses, appel à un ami non compté).</p>`:""}`
     :`<p style="text-align:center;color:var(--ice-dim)">Aucune question n'a encore été jouée.</p>`}
-    <div class="row center" style="margin-top:3vh"><button class="btn ghost" id="bH">Tableau des questions</button><button class="btn gold" id="bC">Remerciements</button></div></section>`;
+    <div class="row center resbtns ${seq?"hidden":""}" style="margin-top:3vh">
+      ${S&&S.order.length?`<button class="btn" id="bTro">🏆 Trophées</button><button class="btn" id="bMom">✨ Moments forts</button><button class="btn" id="bPic">📸 Photo souvenir</button><button class="btn" id="bClap">👏 Applaudimètre</button>`:""}
+    </div>
+    <div class="row center resbtns ${seq?"hidden":""}" style="margin-top:1.2vh"><button class="btn ghost" id="bH">Tableau des questions</button><button class="btn gold" id="bC">Remerciements</button></div>
+    ${seq?`<p class="skip" id="skip">Cliquez pour tout dévoiler</p>`:""}</section>`;
   $("#bH").onclick=()=>go("hub"); $("#bC").onclick=()=>go("credits");
-  if(!quiet){ play("applause"); confetti(3500); }
+  $("#bTro")&&($("#bTro").onclick=showTrophies); $("#bMom")&&($("#bMom").onclick=showMoments); $("#bPic")&&($("#bPic").onclick=showSouvenir); $("#bClap")&&($("#bClap").onclick=launchClap);
+  if(seq) revealPodium();
+  else if(!quiet){ play("applause"); confetti(3500); }
+}
+async function revealPodium(){
+  const run=++podiumRun, alive=()=>run===podiumRun&&screen==="results";
+  let skip=false; const sc=$("#resScr"); sc.addEventListener("click",()=>{ skip=true; },{once:true});
+  stop("generique",400);
+  const pods=[...app.querySelectorAll(".pod")].sort((a,b)=>b.dataset.rank-a.dataset.rank||b.dataset.i-a.dataset.i);   // 3rd, 2nd, then 1st
+  for(const pd of pods){
+    if(!alive()) return;
+    if(!skip){ const d=SFX.drum(pd.dataset.rank==="1"?2.6:1.6); const t0=Date.now(); while(!skip && Date.now()-t0<d*1000){ await sleep(80); if(!alive()) return; } }
+    pd.classList.remove("hidden"); pd.classList.add("show"); const av=$(".av",pd); av.classList.add("enter");
+    SFX.cymbal();
+    if(pd.dataset.rank==="1"){ SFX.fanfare(); confetti(4000); play("applause"); setTimeout(()=>{ if(alive()) sparkle($(".podav",pd)); },600); }
+    setTimeout(()=>{ av.classList.remove("enter"); av.classList.add("dance"); },1000);
+    if(!skip) await sleep(700);
+  }
+  if(!alive()) return;
+  app.querySelectorAll(".hidden").forEach(e=>e.classList.remove("hidden")); const sk=$("#skip"); if(sk) sk.remove();
+  podiumSeen=S.gameId+":"+S.order.join(); admin("show",{screen:"results",hold:false});
 }
 function renderCredits(){
   const all=S?S.players:[];
   app.innerHTML=`<section class="screen credits res">${emblemSVG("sm")}<h2>Merci d'avoir participé !</h2>
     ${hostsList().length?`<div class="row center">${hostsHTML(56)}</div>`:""}
-    <div class="cwall">${all.map(p=>`<div>${avatarHTML(p.avatar,p.name,110)}<br>${esc(p.name)}</div>`).join("")}</div>
+    <div class="cwall">${all.map(p=>`<div>${avatarHTML(p.avatar,p.name,all.length<=12?150:all.length<=30?120:96,"","dance")}<br>${esc(p.name)}</div>`).join("")}</div>
+    <div class="row center" style="margin-bottom:2vh"><button class="btn" id="bPic">📸 Photo souvenir</button><button class="btn" id="bClap">👏 Applaudimètre</button></div>
     <div class="row center"><button class="btn ghost" id="bH">Accueil</button></div></section>`;
-  $("#bH").onclick=()=>go("home"); play("applause"); play("generique");
+  $("#bH").onclick=()=>go("home"); $("#bPic").onclick=showSouvenir; $("#bClap").onclick=launchClap; play("applause"); play("generique");
 }
 
 /* ================= Confetti ================= */
@@ -850,6 +903,9 @@ function cfgGeneral(b){
     <div class="f"><label for="g7">Points retirés par défaut par joker utilisé</label><input class="inp" id="g7" type="number" min="0" max="10" data-k="jokerCost"></div>
     <div class="f"><label for="g8">Temps pour répondre (secondes, 0 = sans limite)</label><input class="inp" id="g8" type="number" min="0" max="600" data-k="timer"><span class="hint">Sans limite, c'est vous qui closez les réponses.</span></div></div>
     <label class="chk"><input type="checkbox" data-k="tieSpeed"> Départager les ex-aequo par la vitesse : à points égaux, le joueur le plus rapide passe devant (temps cumulé sur ses bonnes réponses, appel à un ami non compté)</label>
+    <label class="chk"><input type="checkbox" data-k="streakBonus"> Bonus de série : +1 point toutes les 3 bonnes réponses d'affilée (la flamme 🔥 s'affiche dans tous les cas)</label>
+    <label class="chk"><input type="checkbox" data-k="reactions"> Réactions des joueurs : leurs émojis 👏 😂 😮 ❤️ 🔥 🎉 s'envolent sur l'écran projeté</label>
+    <div class="f" style="max-width:520px"><label for="g12">La course (classement animé) s'affiche</label><select id="g12" data-k="raceEvery" data-num><option value="0">jamais automatiquement (bouton « La course » du tableau)</option><option value="2">toutes les 2 questions</option><option value="3">toutes les 3 questions</option><option value="4">toutes les 4 questions</option><option value="5">toutes les 5 questions</option></select></div>
     <label class="chk"><input type="checkbox" data-k="autoClose"> Clore automatiquement les réponses dès que tous les joueurs connectés ont répondu</label>
     <h4 style="margin-top:14px">Jokers (sur le téléphone de chaque joueur)</h4>
     <label class="chk"><input type="checkbox" data-k="jokers.fifty"> Joker 50:50 : retire deux mauvaises réponses sur le téléphone du joueur</label>
@@ -1206,3 +1262,204 @@ setInterval(()=>{ fetch("/healthz",{cache:"no-store"}).catch(()=>{}); },4*60*100
   if(!r.ok) return renderLogin();
   start(); render();
 })();
+
+/* =====================================================================
+   Fun layer: giant living wall, answer band, runs to the answers, reactions,
+   clap meter, race, trophies, highlights, souvenir picture
+   ===================================================================== */
+/* ---------- home: the wall takes all the room left */
+function renderHomeCrowd(){
+  app.innerHTML=`<section class="screen home3">
+    <div class="htop"><div class="hemb">${emblemSVG()}</div>
+      <div class="hmid">${CFG.tagline?`<div class="tag">${esc(CFG.tagline)}</div>`:""}${CFG.subtitle?`<div class="sub">${esc(CFG.subtitle)}</div>`:""}
+        ${hostsHTML(64)}<div class="row center"><button class="btn gold" id="bStart">${S.order.length?"Reprendre la partie":"Lancer le jeu"}</button></div>
+        ${CFG.footer?`<div class="foot">${esc(CFG.footer)}</div>`:""}</div>
+      <div class="hqr">${qrCard(true)}<div class="plhead"><b id="nPl">${plCount()}</b> inscrits</div></div></div>
+    <div class="wall3" id="wall"></div></section>`;
+  $("#bStart").onclick=()=>go("hub");
+  syncWall(true);
+  play("generique",{restart:false});
+}
+function wallH(N,W,H){
+  const gap=16, lab=28;
+  for(let h=330;h>=46;h-=4){ const w=h*AV_RATIO, cols=Math.floor((W+gap)/(w+gap)); if(cols<1) continue; if(Math.ceil(N/cols)*(h+lab+gap)-gap<=H) return h; }
+  return 46;
+}
+function syncWall(initial){
+  const wall=$("#wall"); if(!wall||!wall.classList.contains("wall3")) return;
+  const N=S.players.length, h=wallH(N,wall.clientWidth,wall.clientHeight);
+  const have=new Map([...wall.querySelectorAll("[data-pl]")].map(e=>[e.dataset.pl,e]));
+  let prevEl=null;
+  S.players.forEach(p=>{
+    const sig=JSON.stringify(p.avatar)+p.name; let el=have.get(p.pid); have.delete(p.pid);
+    if(!el || el.dataset.sig!==sig){
+      const fresh=!el; const t=document.createElement("template");
+      t.innerHTML=`<button class="pl" data-pl="${p.pid}" title="${esc(p.name)} : changer l'avatar ou exclure">${avatarHTML(p.avatar,p.name,h,"","alive"+(fresh&&!initial?" enter":""))}<span>${esc(p.name)}</span></button>`;
+      const n=t.content.firstChild; n.dataset.sig=sig; n.dataset.h=h; n.onclick=()=>playerCard(p.pid);
+      if(el) el.replaceWith(n); else if(prevEl) prevEl.after(n); else wall.prepend(n);
+      if(fresh&&!initial){ SFX.pop(); setTimeout(()=>{ const a=$(".av",n); if(a){ a.classList.remove("enter"); } },1000); }
+      el=n;
+    }
+    if(+el.dataset.h!==h){ const a=$(".av",el); a.style.width=Math.round(h*AV_RATIO)+"px"; a.style.height=h+"px"; el.dataset.h=h; }
+    el.classList.toggle("off",!p.online); el.style.width=Math.max(Math.round(h*AV_RATIO),70)+"px";
+    prevEl=el;
+  });
+  have.forEach(e=>e.remove());
+}
+addEventListener("resize",()=>{ if(screen==="home") syncWall(); });
+
+/* ---------- question: band of players who already answered (without their choice) */
+const bandShown=new Set(); let hopT=0;
+function syncBand(){
+  const el=$("#aband"); if(!el||!S.cur) return;
+  const ids=(S.cur.answeredIds||[]).filter(id=>playerById(id)), MAXB=14;
+  ids.slice(0,MAXB).forEach(id=>{ if(bandShown.has(id)) return; bandShown.add(id); const p=playerById(id);
+    const t=document.createElement("span"); t.className="bk"; t.dataset.pid=id; t.title=p.name;
+    t.innerHTML=avatarHTML(p.avatar,p.name,54,"","alive hop")+`<i class="hand">✋</i>`; el.appendChild(t);
+    setTimeout(()=>{ const a=$(".av",t); a&&a.classList.remove("hop"); },700);
+    if(Date.now()-hopT>120){ hopT=Date.now(); SFX.hop(); } });
+  let more=$(".bmore",el); const extra=ids.length-MAXB;
+  if(extra>0){ if(!more){ more=document.createElement("span"); more.className="bmore"; el.appendChild(more); } more.textContent="+"+extra; } else if(more) more.remove();
+}
+function bandPositions(){
+  const el=$("#aband"); if(!el) return null; const out={};
+  el.querySelectorAll("[data-pid]").forEach(b=>{ const r=b.getBoundingClientRect(); out[b.dataset.pid]={x:r.left+r.width/2,y:r.top+r.height/2}; });
+  const r=el.getBoundingClientRect(); out._center={x:r.left+r.width/2,y:r.top+r.height/2};
+  return out;
+}
+// each avatar runs (small hops) from the band to the answer it chose
+function runToAnswers(from){
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const pks=[...app.querySelectorAll(".pk[data-pid]")]; if(!pks.length) return;
+  SFX.run();
+  // the answers are clipped (hexagon shape): the runners are copies flying above everything, the real avatar shows on arrival
+  let layer=$("#runLayer"); if(!layer){ layer=document.createElement("div"); layer.id="runLayer"; document.body.appendChild(layer); }
+  pks.forEach((el,i)=>{
+    const to=el.getBoundingClientRect(), src=from[el.dataset.pid]||from._center; if(!src) return;
+    const dx=src.x-(to.left+to.width/2), dy=src.y-(to.top+to.height/2), K=[];
+    for(let k=0;k<=8;k++){ const t=k/8, hop=k%2?-18:0; K.push({transform:`translate(${dx*(1-t)}px,${dy*(1-t)+hop}px)`,offset:t}); }
+    const g=el.cloneNode(true); g.className="runner"; Object.assign(g.style,{left:to.left+"px",top:to.top+"px",width:to.width+"px",height:to.height+"px"});
+    layer.appendChild(g); el.style.visibility="hidden";
+    const a=g.animate(K,{duration:950+Math.random()*350,delay:i*55,easing:"ease-in-out",fill:"backwards"});
+    a.onfinish=()=>{ g.remove(); el.style.visibility=""; }; a.oncancel=a.onfinish;
+  });
+}
+function sparkle(host){
+  if(!host||matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  host.style.position=host.style.position||"relative";
+  for(let i=0;i<10;i++){ const sp=document.createElement("span"); sp.className="spark"; sp.textContent=["✨","⭐","🌟"][i%3];
+    const a=Math.random()*Math.PI*2, d=40+Math.random()*60; sp.style.left="50%"; sp.style.top="40%";
+    sp.style.setProperty("--sx",Math.cos(a)*d+"px"); sp.style.setProperty("--sy",Math.sin(a)*d-20+"px"); sp.style.animationDelay=i*50+"ms";
+    host.appendChild(sp); setTimeout(()=>sp.remove(),2200); }
+}
+// before the reveal: what the room thinks
+function pronostic(){
+  const d=(S.cur&&S.cur.dist)||[0,0,0,0], tot=d.reduce((a,b)=>a+b,0); if(!tot) return "Les réponses sont closes…";
+  const mx=Math.max(...d), idx=[0,1,2,3].filter(i=>d[i]===mx), pc=Math.round(mx/tot*100);
+  return idx.length===1?`🗳️ ${pc} % de la salle pense que c'est ${L[idx[0]]}…`:`🗳️ La salle hésite entre ${idx.map(i=>L[i]).join(" et ")} (${pc} % chacune)…`;
+}
+
+/* ---------- reactions sent from the phones */
+function floatReaction(m){
+  if(!CFG.reactions || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  let layer=$("#rxLayer"); if(!layer){ layer=document.createElement("div"); layer.id="rxLayer"; document.body.appendChild(layer); }
+  if(layer.childElementCount>36) layer.firstChild.remove();
+  const b=document.createElement("div"); b.className="rxb"; b.style.left=(4+Math.random()*88)+"%"; b.style.animationDuration=(3.4+Math.random()*1.4)+"s";
+  b.innerHTML=`<div class="rxs" style="animation-delay:-${Math.random()*2}s"><span class="rxe">${esc(m.e)}</span><span class="rxw">${avatarHTML(m.avatar,m.name,44)}<small>${esc(m.name)}</small></span></div>`;
+  layer.appendChild(b); setTimeout(()=>b.remove(),5200);
+}
+
+/* ---------- clap meter */
+function launchClap(){
+  const ov=overlay(`<h3>👏 Applaudimètre</h3><p>Les téléphones deviennent des boutons d'applaudissement : chacun tape (et secoue son téléphone) le plus vite possible.</p>
+    <div class="f" style="text-align:left"><label class="flab" for="clL" style="color:var(--ice-dim)">Pour qui ?</label><input class="inp" id="clL" value="Applaudissez !" style="font-size:18px"></div>
+    <div class="row center" style="margin:8px 0 14px">${["Pour l'animateur !","Pour le gagnant !","Pour toute la salle !","Pour l'équipe Achats !"].map(t=>`<button class="cb sm" data-cl="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <div class="row center"><label class="flab" style="color:var(--ice-dim)">Durée <select id="clS" class="inp" style="width:auto;display:inline-block"><option value="8">8 s</option><option value="10" selected>10 s</option><option value="15">15 s</option><option value="20">20 s</option></select></label></div>
+    <div class="row center" style="margin-top:16px"><button class="btn gold" id="clGo">C'est parti !</button><button class="btn ghost" id="clNo">Annuler</button></div>`,"Applaudimètre",620);
+  ov.querySelectorAll("[data-cl]").forEach(b=>b.onclick=()=>{ $("#clL",ov).value=b.dataset.cl; });
+  $("#clNo",ov).onclick=()=>ov._close();
+  $("#clGo",ov).onclick=async()=>{ const label=$("#clL",ov).value.trim()||"Applaudissez !"; ov._close(); clapEndShown=false; await admin("clap",{label,sec:+$("#clS",ov).value}); };
+}
+let clapLvl=0, clapRaf=0, clapEndShown=false, clapNoiseT=0;
+function syncClap(){
+  const c=S&&S.clap; let ov=$("#clapOv");
+  if(!c){ if(ov) ov.remove(); return; }
+  if(c.on){
+    if(!ov){ ov=document.createElement("div"); ov.id="clapOv"; ov.innerHTML=`<div class="cl-lbl"></div><div class="cl-row"><div class="cl-gauge"><i></i><div class="cl-marks">${[100,75,50,25].map(v=>`<span>${v} %</span>`).join("")}</div></div>
+      <div class="cl-side"><div class="cl-bigbox"><div class="cl-big">👏</div></div><div class="cl-n"><b>0</b> applaudissements</div><div class="cl-t"></div></div></div><button class="cb" id="clStop">Arrêter</button>`;
+      document.body.appendChild(ov); $("#clStop",ov).onclick=()=>admin("clapStop"); stop("generique",400); clapLvl=0; tickClap(); }
+    $(".cl-lbl",ov).textContent=c.label; $(".cl-n b",ov).textContent=c.total;
+    ov.dataset.until=c.until-c.serverNow+Date.now(); ov.dataset.target=Math.min(1,c.rate/Math.max(6,(c.players||1)*3.2));
+  } else if(ov && !clapEndShown){
+    clapEndShown=true; cancelAnimationFrame(clapRaf); ov.classList.add("done");
+    $(".cl-t",ov).textContent=""; $(".cl-big",ov).textContent="🏆"; $(".cl-big",ov).style.transform="";
+    $(".cl-n",ov).innerHTML=`<b>${c.total}</b> applaudissements<br><small>record : ${String(c.best).replace(".",",")} par seconde</small>`;
+    $("#clStop",ov).textContent="Fermer"; $("#clStop",ov).onclick=()=>ov.remove();
+    play("applause"); confetti(2500);
+  }
+}
+function tickClap(){
+  const ov=$("#clapOv"); if(!ov||ov.classList.contains("done")) return;
+  const target=+ov.dataset.target||0; clapLvl+=(target-clapLvl)*(target>clapLvl?.25:.06);
+  $(".cl-gauge i",ov).style.height=Math.round(clapLvl*100)+"%";
+  $(".cl-big",ov).style.transform=`scale(${.8+clapLvl*.55}) rotate(${Math.sin(Date.now()/90)*clapLvl*12}deg)`;
+  const left=Math.max(0,Math.ceil((+ov.dataset.until-Date.now())/1000)); $(".cl-t",ov).textContent=left+" s";
+  if(Date.now()-clapNoiseT>250 && clapLvl>.03 && !muted){ clapNoiseT=Date.now(); for(let i=0;i<Math.round(2+clapLvl*14);i++) noise(Math.random()*.25,.06,.04+clapLvl*.1,1800+Math.random()*2500,1.2); }
+  clapRaf=requestAnimationFrame(tickClap);
+}
+
+/* ---------- the race (animated standings) */
+function raceDue(){ const e=+CFG.raceEvery; return e>0 && S && S.order.length>0 && S.order.length%e===0 && S.order.length<CFG.questions.length; }
+function renderRace(){
+  const hist=(S&&S.history)||[]; if(!hist.length){ go("hub"); return; }
+  const every=+CFG.raceEvery||3, n=hist.length, prev=n-1-every>=0?hist[n-1-every].pts:{}, cur=hist[n-1].pts;
+  const rk=S.ranking.map(e=>({...e,p:playerById(e.pid)})).filter(e=>e.p).slice(0,10);
+  const before=rk.slice().sort((a,b)=>(prev[b.pid]||0)-(prev[a.pid]||0));
+  const max=Math.max(1,...rk.map(e=>cur[e.pid]||0));
+  const rowH=Math.max(46,Math.min(78,Math.floor((innerHeight-260)/Math.max(rk.length,1))));
+  app.innerHTML=`<section class="screen race"><h2>📊 La course <small>après ${n} question${n>1?"s":""}</small></h2>
+    <div class="track" style="height:${rk.length*rowH}px">${rk.map(e=>`<div class="lane" data-pid="${e.pid}" style="top:${before.indexOf(e)*rowH}px;height:${rowH-8}px">
+      <i class="pos">${before.indexOf(e)+1}</i>${avatarHTML(e.p.avatar,e.p.name,rowH-8,"","alive")}
+      <span class="nm">${esc(e.p.name)}${e.streak>=3?` <span class="fire">🔥${e.streak}</span>`:""}</span>
+      <div class="bar"><i style="width:${(prev[e.pid]||0)/max*100}%"></i></div><b class="pts">${prev[e.pid]||0}</b></div>`).join("")}</div>
+    ${S.ranking.length>10?`<p class="more">… et ${S.ranking.length-10} autre${S.ranking.length-10>1?"s":""} joueur${S.ranking.length-10>1?"s":""}</p>`:""}
+    <div class="row center" style="margin-top:2vh"><button class="btn ghost" id="bH">Tableau des questions</button><button class="btn gold" id="bRk">Classement</button></div></section>`;
+  $("#bH").onclick=()=>go("hub"); $("#bRk").onclick=()=>go("results");
+  stop("hub",300);
+  const lanes=[...app.querySelectorAll(".lane")];
+  setTimeout(()=>{ if(screen!=="race") return; SFX.drum(1.3);
+    lanes.forEach(l=>{ const pid=l.dataset.pid, to=cur[pid]||0, from=prev[pid]||0; $(".bar i",l).style.width=to/max*100+"%";
+      const b=$(".pts",l), t0=performance.now(); (function f(t){ const k=Math.min(1,(t-t0)/1400); b.textContent=Math.round(from+(to-from)*k); if(k<1) requestAnimationFrame(f); })(t0);
+      if(to>from) $(".av",l).classList.add("hop"); });
+  },600);
+  setTimeout(()=>{ if(screen!=="race") return; SFX.whoosh();
+    lanes.forEach(l=>{ const i=rk.findIndex(e=>e.pid===l.dataset.pid); l.style.top=i*rowH+"px"; $(".pos",l).textContent=i+1; $(".av",l).classList.remove("hop");
+      const was=before.findIndex(e=>e.pid===l.dataset.pid); if(i<was){ l.classList.add("up"); setTimeout(()=>{ const a=$(".av",l); a&&a.classList.add("jump"); },700); } });
+    setTimeout(()=>{ if(screen==="race"){ SFX.cymbal(); const first=app.querySelector(`.lane[data-pid="${rk[0].pid}"] .av`); first&&first.classList.add("dance"); } },1000);
+  },2300);
+}
+
+/* ---------- trophies, highlights, souvenir picture */
+function showTrophies(){
+  const T=(S.awards&&S.awards.list)||[];
+  const ov=overlay(`<h3>🏆 Les trophées</h3>${T.length?`<div class="trophies">${T.map(t=>{ const p=playerById(t.pid); return `<div class="tro"><div class="ti">${t.icon}</div><div class="tt">${esc(t.title)}</div>
+    ${p?avatarHTML(p.avatar,p.name,140,"","dance"):""}<div class="tn">${esc(t.name)}</div><div class="tx">${esc(t.txt)}</div></div>`; }).join("")}</div>`:`<p>Jouez quelques questions pour décerner les trophées.</p>`}
+    <div class="row center" style="margin-top:14px"><button class="btn gold" data-x>Fermer</button></div>`,"Trophées",1200);
+  SFX.fanfare(); ov.querySelector("[data-x]").onclick=()=>ov._close();
+}
+function showMoments(){
+  const M=(S.awards&&S.awards.moments)||[];
+  const ov=overlay(`<h3>✨ Les moments forts</h3>${M.length?`<div class="moments">${M.map(m=>{ const p=m.pid&&playerById(m.pid); return `<div class="mom"><div class="mi">${m.icon}</div><div><div class="mt">${esc(m.title)}</div><div class="mx">${esc(m.txt)}</div>${m.sub?`<div class="ms">« ${esc(m.sub)} »</div>`:""}</div>${p?avatarHTML(p.avatar,p.name,90,"","alive"):""}</div>`; }).join("")}</div>`:`<p>Jouez quelques questions d'abord.</p>`}
+    <div class="row center" style="margin-top:14px"><button class="btn gold" data-x>Fermer</button></div>`,"Moments forts",980);
+  ov.querySelector("[data-x]").onclick=()=>ov._close();
+}
+async function showSouvenir(){
+  const players=S.ranking.map(e=>{ const p=playerById(e.pid); return p&&{pid:e.pid,name:p.name,avatar:p.avatar,points:e.points,rank:e.rank}; }).filter(Boolean);
+  if(!players.length){ toast("Aucun joueur pour la photo."); return; }
+  toast("Préparation de la photo souvenir…");
+  const c=await souvenirCanvas({title:CFG.title,subtitle:CFG.subtitle,players});
+  const ov=overlay(`<h3>📸 Photo souvenir</h3><img src="${c.toDataURL("image/jpeg",.9)}" alt="Photo souvenir" style="width:100%;border-radius:10px;border:2px solid var(--line)">
+    <p>Chaque joueur peut aussi la télécharger depuis son téléphone (bouton « Ma photo souvenir »).</p>
+    <div class="row center"><button class="btn gold" id="spDl">Télécharger (PNG)</button><button class="btn ghost" data-x>Fermer</button></div>`,"Photo souvenir",1100);
+  $("#spDl",ov).onclick=()=>downloadCanvas(c,"souvenir-quiz.png"); ov.querySelector("[data-x]").onclick=()=>ov._close();
+}

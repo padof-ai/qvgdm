@@ -37,7 +37,8 @@ function freshState() {
   return {
     gameId: rid(6),
     players: new Map(),            // pid -> {pid, token, name, avatar, joinedAt, jokersUsed:{fifty,public,phone}}
-    settings: { jokers: { fifty: true, public: true, phone: false }, jokerScope: "game", phoneSec: 30, autoClose: true, tieSpeed: true, jokerSounds: true },
+    settings: { jokers: { fifty: true, public: true, phone: false }, jokerScope: "game", phoneSec: 30, autoClose: true, tieSpeed: true, jokerSounds: true, streakBonus: false, reactions: true, title: "", subtitle: "" },
+    clap: null,                    // clap meter: {label, until, total, hits: [[time, n]…]}
     phase: "lobby",                // lobby | intro | question | closed | revealed | results | credits
     cur: null,                     // current question (with the correct answer, never sent to players before reveal)
     results: {},                   // qid -> {label, correct, at, rows: {pid -> {choice, ok, points, ms, jokers}}}
@@ -47,14 +48,18 @@ function freshState() {
   };
 }
 function scores() {
-  const tot = {};
-  for (const p of G.players.values()) tot[p.pid] = { points: 0, good: 0, ms: 0 };
+  const tot = {}, history = [];
+  for (const p of G.players.values()) tot[p.pid] = { points: 0, good: 0, ms: 0, streak: 0, best: 0, bonus: 0 };
   for (const qid of G.order) {
     const r = G.results[qid]; if (!r) continue;
-    for (const [pid, row] of Object.entries(r.rows)) {
-      if (!tot[pid]) continue;
-      tot[pid].points += row.points; if (row.ok) { tot[pid].good++; tot[pid].ms += row.ms || 0; }
+    for (const [pid, t] of Object.entries(tot)) {
+      const row = r.rows[pid];
+      if (row && row.ok) {
+        t.points += row.points; t.good++; t.ms += row.ms || 0; t.streak++; t.best = Math.max(t.best, t.streak);
+        if (G.settings.streakBonus && t.streak % 3 === 0) { t.points++; t.bonus++; }    // 🔥 3 good answers in a row
+      } else { if (row) t.points += row.points; t.streak = 0; }
     }
+    history.push({ qid, pts: Object.fromEntries(Object.entries(tot).map(([pid, t]) => [pid, t.points])) });
   }
   // ranking: most points first; equal points are split by the total time taken on correct answers (fastest first)
   const sp = G.settings.tieSpeed !== false, key = e => sp ? e.points + "|" + e.ms : String(e.points);
@@ -62,7 +67,54 @@ function scores() {
   let rank = 0, last = null;
   list.forEach((e, i) => { const k = key(e); if (k !== last) { rank = i + 1; last = k; } e.rank = rank; });
   for (const e of list) e.tied = list.filter(x => x.points === e.points).length - 1;   // other players with the same points
-  return { list, byPid: Object.fromEntries(list.map(e => [e.pid, e])) };
+  return { list, byPid: Object.fromEntries(list.map(e => [e.pid, e])), history };
+}
+/* End-of-game titles and the evening's highlights */
+function awards(sc) {
+  const P = [...G.players.values()], qs = G.order.map(id => [id, G.results[id]]).filter(([, r]) => r);
+  if (!qs.length || !P.length) return { byPid: {}, list: [], moments: [] };
+  const st = Object.fromEntries(P.map(p => [p.pid, { n: 0, good: 0, ms: 0, jk: 0, fifty: 0, pub: 0, phone: 0 }]));
+  for (const [, r] of qs) for (const [pid, row] of Object.entries(r.rows)) {
+    const s = st[pid]; if (!s) continue; s.n++; const j = row.jokers || {};
+    if (row.ok) { s.good++; s.ms += row.ms || 0; }
+    for (const k of ["fifty", "public", "phone"]) if (j[k]) { s.jk++; s[k === "public" ? "pub" : k]++; }
+  }
+  const name = pid => (G.players.get(pid) || {}).name || "";
+  // each title goes to the best player; when possible to someone who has no title yet (more winners in the room)
+  const got = new Set();
+  const best = (f, ok) => { const c = []; for (const p of P) { const x = f(p.pid, st[p.pid]); if (x == null || (ok && !ok(p.pid, st[p.pid]))) continue; c.push([p.pid, x]); }
+    if (!c.length) return null; c.sort((a, b) => b[1] - a[1]); const top = c[0][1], fresh = c.find(e => !got.has(e[0]) && (e[1] >= top * .6 || e[1] === top));
+    const r = fresh || c[0]; got.add(r[0]); return r; };
+  const T = [];
+  const add = (key, icon, title, txt, r) => { if (r) T.push({ key, icon, title, pid: r[0], name: name(r[0]), txt: txt(r[1], r[0]) }); };
+  add("fast", "⚡", "L'éclair", v => `${(-v / 1000).toFixed(1).replace(".", ",")} s en moyenne par bonne réponse`, best((pid, s) => s.good ? -s.ms / s.good : null, (pid, s) => s.good >= Math.min(2, qs.length)));
+  add("brave", "🦁", "Sans filet", v => `${v} bonne${v > 1 ? "s" : ""} réponse${v > 1 ? "s" : ""} sans aucun joker`, best((pid, s) => s.jk === 0 && s.good ? s.good : null));
+  add("fifty", "✂️", "Le roi du 50:50", v => `${v} joker${v > 1 ? "s" : ""} 50:50 utilisé${v > 1 ? "s" : ""}`, best((pid, s) => s.fifty || null));
+  add("crowd", "👥", "L'ami du public", v => `${v} vote${v > 1 ? "s" : ""} du public demandé${v > 1 ? "s" : ""}`, best((pid, s) => s.pub || null));
+  add("phone", "📞", "Pendu au téléphone", v => `${v} appel${v > 1 ? "s" : ""} à un ami`, best((pid, s) => s.phone || null));
+  add("streak", "🔥", "En feu", v => `${v} bonnes réponses d'affilée`, best(pid => (sc.byPid[pid] || {}).best >= 3 ? sc.byPid[pid].best : null));
+  if (sc.history.length >= 3) {                     // the biggest climb between the middle and the end of the game
+    const rankAt = pts => { const l = Object.entries(pts).sort((a, b) => b[1] - a[1]); const r = {}; l.forEach(([pid], i) => r[pid] = i + 1); return r; };
+    const a = rankAt(sc.history[Math.floor((sc.history.length - 1) / 2)].pts), z = rankAt(sc.history[sc.history.length - 1].pts);
+    add("climb", "📈", "La remontée", v => `+${v} place${v > 1 ? "s" : ""} en deuxième partie de jeu`, best(pid => a[pid] && z[pid] && a[pid] - z[pid] >= 2 ? a[pid] - z[pid] : null));
+  }
+  add("loyal", "🎯", "Fidèle au poste", v => `a répondu aux ${v} questions`, P.length > 1 ? best((pid, s) => s.n === qs.length && s.n >= 3 ? s.n : null) : null);
+  const byPid = {}; T.forEach(t => (byPid[t.pid] = byPid[t.pid] || []).push(t));
+  // highlights
+  const M = [], L = "ABCD";
+  const st2 = qs.map(([id, r]) => { const rows = Object.values(r.rows), n = rows.length, ok = rows.filter(x => x.ok).length;
+    const d = [0, 1, 2, 3].map(i => rows.filter(x => x.choice === i).length); return { id, r, n, ok, d }; }).filter(x => x.n);
+  if (st2.length) {
+    const hard = st2.slice().sort((a, b) => a.ok / a.n - b.ok / b.n)[0];
+    M.push({ icon: "🧠", title: "La question la plus ratée", txt: `${hard.r.label} : ${Math.round(hard.ok / hard.n * 100)} % de bonnes réponses`, sub: hard.r.text });
+    const split = st2.slice().sort((a, b) => Math.max(...a.d) / a.n - Math.max(...b.d) / b.n)[0];
+    if (split.n >= 3) M.push({ icon: "⚖️", title: "La salle la plus divisée", txt: `${split.r.label} : ${split.d.map((v, i) => v ? `${L[i]} ${Math.round(v / split.n * 100)} %` : "").filter(Boolean).join(" · ")}`, sub: split.r.text });
+    const easy = st2.slice().sort((a, b) => b.ok / b.n - a.ok / a.n)[0];
+    if (easy !== hard) M.push({ icon: "🎉", title: "La question la mieux réussie", txt: `${easy.r.label} : ${Math.round(easy.ok / easy.n * 100)} % de bonnes réponses`, sub: easy.r.text });
+  }
+  let fast = null; for (const [, r] of qs) for (const [pid, row] of Object.entries(r.rows)) if (row.ok && G.players.has(pid) && (!fast || row.ms < fast.ms)) fast = { pid, ms: row.ms, r };
+  if (fast) M.push({ icon: "⚡", title: "La réponse la plus rapide", txt: `${name(fast.pid)} en ${(fast.ms / 1000).toFixed(1).replace(".", ",")} s`, sub: fast.r.label, pid: fast.pid });
+  return { byPid, list: T, moments: M };
 }
 
 /* Audience vote: the harder the question (1 to 4), the more divided the room; at level 4 a wrong answer may win */
@@ -106,6 +158,7 @@ function adminView() {
     deadline: G.cur.deadline, openedAt: G.cur.openedAt, phase: G.phase,
     answered: Object.keys(G.cur.answers_by).length,
     dist: [0, 1, 2, 3].map(i => Object.values(G.cur.answers_by).filter(a => a.choice === i).length),
+    answeredIds: Object.entries(G.cur.answers_by).filter(([, a]) => a.choice != null).map(([pid]) => pid),
     picks: ["closed", "revealed"].includes(G.phase) ? Object.fromEntries(Object.entries(G.cur.answers_by).filter(([, a]) => a.choice != null).map(([pid, a]) => [pid, a.choice])) : null,
     jokers: Object.values(G.cur.answers_by).concat(Object.values(G.cur.jokerOnly)).reduce((a, x) => { for (const k of ["fifty", "public", "phone"]) if (x.jokers && x.jokers[k]) a[k]++; return a; }, { fifty: 0, public: 0, phone: 0 }),
   };
@@ -113,13 +166,15 @@ function adminView() {
     gameId: G.gameId, phase: G.phase, show: G.show, settings: G.settings, cur,
     players: [...G.players.values()].map(p => ({ ...publicPlayer(p), online: online(p.pid), score: sc.byPid[p.pid] })),
     results: G.results, order: G.order, ranking: sc.list, banned: G.banned.map(x => ({ name: x.name, avatar: x.avatar })),
+    history: sc.history, awards: awards(sc), clap: clapView(true),
   };
 }
-function playerView(pid, sc) {
+function playerView(pid, sc, aw) {
   const p = G.players.get(pid); if (!p) return { gone: true, gameId: G.gameId };
   sc = sc || scores(); const me = sc.byPid[pid] || { points: 0, rank: sc.list.length, good: 0, ms: 0, tied: 0 };
-  const v = { gameId: G.gameId, me: { ...publicPlayer(p), points: me.points, rank: me.rank, good: me.good, of: sc.list.length, ms: me.ms, tied: me.tied },
-    phase: G.phase, screen: G.show.screen, settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false, jokerSounds: G.settings.jokerSounds !== false, jokerFiles: JOKER_FILES } };
+  const v = { gameId: G.gameId, me: { ...publicPlayer(p), points: me.points, rank: me.rank, good: me.good, of: sc.list.length, ms: me.ms, tied: me.tied, streak: me.streak || 0 },
+    phase: G.phase, screen: G.show.screen, hold: !!G.show.hold, clap: clapView(false),
+    trophies: ["results", "credits"].includes(G.phase) && !G.show.hold ? ((aw || awards(sc)).byPid[pid] || []) : [], settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false, jokerSounds: G.settings.jokerSounds !== false, jokerFiles: JOKER_FILES, reactions: G.settings.reactions !== false, title: G.settings.title } };
   if (G.cur && ["intro", "question", "closed", "revealed"].includes(G.phase)) {
     const a = G.cur.answers_by[pid] || G.cur.jokerOnly[pid] || null;
     const usedHere = (a && a.jokers) || {};
@@ -147,8 +202,8 @@ function pushAll() {                  // coalesce bursts (many answers in the sa
   if (pushTimer) return;
   pushTimer = setTimeout(() => {
     pushTimer = null;
-    const av = { type: "state", state: adminView() }, sc = scores();
-    for (const c of clients) send(c, c.role === "admin" ? av : { type: "state", state: playerView(c.pid, sc) });
+    const av = { type: "state", state: adminView() }, sc = scores(), aw = ["results", "credits"].includes(G.phase) ? av.state.awards : null;
+    for (const c of clients) send(c, c.role === "admin" ? av : { type: "state", state: playerView(c.pid, sc, aw) });
   }, 60);
 }
 setInterval(() => { for (const c of clients) { try { c.res.write(": ping\n\n"); } catch (e) { } } }, 20000);
@@ -188,8 +243,15 @@ function adminAction(b) {
   const a = b.action;
   if (a === "hello") { if (b.settings) applySettings(b.settings); return { ok: true }; }
   if (a === "settings") { applySettings(b.settings || {}); pushAll(); return { ok: true }; }
+  if (a === "clap") {                       // clap meter: the phones become applause buttons for a few seconds
+    const sec = Math.max(5, Math.min(30, +b.sec || 10));
+    G.clap = { label: clean(b.label, 60) || "Applaudissez !", until: now() + sec * 1000, total: 0, hits: [], best: 0 };
+    clearInterval(clapT); clapT = setInterval(() => { pushAll(); if (!G.clap || now() > G.clap.until + 400) clearInterval(clapT); }, 300);
+    pushAll(); return { ok: true };
+  }
+  if (a === "clapStop") { if (G.clap) G.clap.until = Math.min(G.clap.until, now()); pushAll(); return { ok: true }; }
   if (a === "show") {                       // projected screen changed (home, hub, results, credits)
-    G.show = { screen: clean(b.screen, 20) || "hub" };
+    G.show = { screen: clean(b.screen, 20) || "hub", hold: !!b.hold };
     if (G.cur) clearTimeout(G.cur.timer);
     G.cur = null; G.phase = ["results", "credits"].includes(G.show.screen) ? G.show.screen : "lobby";
     pushAll(); return { ok: true };
@@ -262,6 +324,9 @@ function applySettings(s) {
   G.settings.autoClose = s.autoClose !== false;
   G.settings.tieSpeed = s.tieSpeed !== false;
   G.settings.jokerSounds = s.jokerSounds !== false;
+  G.settings.streakBonus = !!s.streakBonus;
+  G.settings.reactions = s.reactions !== false;
+  G.settings.title = clean(s.title, 80); G.settings.subtitle = clean(s.subtitle, 80);
 }
 
 function playerAuth(b) {
@@ -285,6 +350,23 @@ function playerAction(path, b) {
   }
   const p = playerAuth(b);
   if (!p) return { ok: false, error: "unknown", gone: true };
+  if (path === "clap") {
+    const c = G.clap; if (!c || now() > c.until) return { ok: false };
+    const n = Math.max(0, Math.min(40, Math.round(+b.n) || 0)); if (!n) return { ok: true };
+    c.total += n; c.hits.push([now(), n]); pushAll(); return { ok: true };
+  }
+  if (path === "avatar") {                  // the player changes his character
+    const av = cleanAvatar(b.avatar, true); if (!av) return { ok: false };
+    p.avatar = av; pushAll(); return { ok: true };
+  }
+  if (path === "react") {
+    if (G.settings.reactions === false) return { ok: false };
+    const e = String(b.e || ""); if (!REACTIONS.includes(e)) return { ok: false };
+    const t = now(); p.reactAt = (p.reactAt || []).filter(x => t - x < 2000); if (p.reactAt.length >= 6) return { ok: false, slow: true };
+    p.reactAt.push(t);
+    for (const c of clients) if (c.role === "admin") send(c, { type: "react", e, pid: p.pid, name: p.name, avatar: viewAvatar(p) });
+    return { ok: true };
+  }
   if (!G.cur || b.qid !== G.cur.qid) return { ok: false, error: "Cette question n'est plus en cours." };
   if (path === "answer") {
     if (G.phase !== "question") return { ok: false, error: "Les réponses sont closes." };
@@ -317,12 +399,28 @@ function playerAction(path, b) {
 // optional MP3s for the jokers on the phones (otherwise the phones synthesize the sounds)
 const JOKER_FILES = ["joker-5050", "joker-public", "joker-phone"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
 const AV_MAX = 180000;   // characters of an avatar picture (data URL); the admin and the phones resize pictures below this
+const REACTIONS = ["👏", "😂", "😮", "❤️", "🔥", "🎉"];
+let clapT = null;
+function clapView(admin) {
+  const c = G.clap; if (!c) return null;
+  const t = now(), on = t < c.until;
+  c.hits = c.hits.filter(h => t - h[0] < 1500);
+  const rate = c.hits.reduce((a, h) => a + h[1], 0) / 1.5;          // claps per second, over the last 1.5 s
+  if (on) c.best = Math.max(c.best, rate);
+  return admin ? { on, label: c.label, until: c.until, total: c.total, rate: Math.round(rate * 10) / 10, best: Math.round(c.best * 10) / 10, players: G.players.size, serverNow: t }
+    : { on, label: c.label, until: c.until, serverNow: t };
+}
+const AV_OPTS = { hs: 10, skin: 7, hair: 10, top: 12, topKind: 3, bottom: 7, shoe: 8, pose: 3, glasses: 2, freckles: 2, beard: 2, skirt: 2, smile: 3, logo: 6 };
 function cleanAvatar(a, allowImg) {
   if (!a || typeof a !== "object") return null;
   if (a.kind === "emoji") return { kind: "emoji", v: clean(a.v, 16) };
   if (a.kind === "ini") return { kind: "ini", color: /^#[0-9a-f]{6}$/i.test(a.color) ? a.color : "#3c49d6" };
   if (a.kind === "img" && allowImg && typeof a.src === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a.src) && a.src.length <= AV_MAX) return { kind: "img", src: a.src };
-  if (a.kind === "gen") return { kind: "gen", seed: Math.abs(Math.round(+a.seed) || 1) % 1e7 };
+  if (a.kind === "gen") {
+    const g = { kind: "gen", seed: Math.abs(Math.round(+a.seed) || 1) % 1e7 };
+    if (a.o && typeof a.o === "object") { const o = {}; for (const [k, n] of Object.entries(AV_OPTS)) if (Number.isInteger(a.o[k]) && a.o[k] >= 0 && a.o[k] < n) o[k] = a.o[k]; if (Object.keys(o).length) g.o = o; }
+    return g;
+  }
   return null;
 }
 /* ------------------------------------------------------------------ QR code */
@@ -369,6 +467,10 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": m[1], "Content-Length": buf.length, "Cache-Control": "public, max-age=31536000, immutable" });
       return res.end(buf);
     }
+    if (req.method === "GET" && p === "/api/souvenir") {       // the picture of the evening, drawn by each phone
+      const sc = scores();
+      return json(res, 200, { title: G.settings.title, subtitle: G.settings.subtitle, players: sc.list.map(e => { const pl = G.players.get(e.pid); return pl && { pid: e.pid, name: pl.name, avatar: viewAvatar(pl), points: e.points, rank: e.rank }; }).filter(Boolean) });
+    }
     if (req.method === "GET" && p === "/api/qr.svg") {
       const t = (url.searchParams.get("t") || "").slice(0, 300);
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" }); return res.end(qrSVG(t || "https://example.com"));
@@ -401,8 +503,8 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req, 2000);
       return json(res, 200, { ok: isAdmin(b.key), protected: !!ADMIN_PASSWORD });
     }
-    if (req.method === "POST" && ["/api/join", "/api/answer", "/api/joker"].includes(p)) {
-      const b = await readBody(req, p === "/api/join" ? AV_MAX + 4000 : 5000);
+    if (req.method === "POST" && ["/api/join", "/api/answer", "/api/joker", "/api/clap", "/api/react", "/api/avatar"].includes(p)) {
+      const b = await readBody(req, p === "/api/join" || p === "/api/avatar" ? AV_MAX + 4000 : 5000);
       return json(res, 200, playerAction(p.slice(5), b));
     }
     if (req.method === "GET") {

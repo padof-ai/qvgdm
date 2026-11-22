@@ -19,12 +19,17 @@ const BOTTOM=["#2b2d38","#3d5a8a","#2d3f66","#c8b48c","#4a4a4a","#6b4a3a","#1c24
 const SHOE=["#2d4fd1","#d63b3b","#f2f2f2","#1f1f1f","#2fae5f","#f2b33d","#7b4bc4","#e57a2f"];
 const shade=(hex,f)=>{ const n=parseInt(hex.slice(1),16); const c=[n>>16,(n>>8)&255,n&255].map(v=>Math.max(0,Math.min(255,Math.round(f<0?v*(1+f):v+(255-v)*f)))); return "#"+c.map(v=>v.toString(16).padStart(2,"0")).join(""); };
 // Full-body "chibi" character (big head, hoodie, trousers, sneakers), portrait 120 x 160, transparent background
-function genAvatarSVG(seed){
-  const r=mulberry(seed*9301+49297), p=a=>a[Math.floor(r()*a.length)];
-  const skin=p(SKIN), hair=p(HAIR), top=p(TOP), bottom=p(BOTTOM), shoe=p(SHOE);
-  const longHair=r()<.4, hs=longHair?["long","pony","bob","bun","curlyLong"][Math.floor(r()*5)]:["spiky","side","curly","buzz","quiff"][Math.floor(r()*5)];
-  const glasses=r()<.22, freckles=r()<.25, lashes=longHair?r()<.75:r()<.1, beard=!longHair&&r()<.12;
-  const pose=Math.floor(r()*3), topKind=Math.floor(r()*3), logo=Math.floor(r()*6), skirt=longHair&&r()<.3, smile=Math.floor(r()*3);
+const HAIRSTYLES=["long","pony","bob","bun","curlyLong","spiky","side","curly","buzz","quiff"];
+// The seed draws a character; "o" (avatar builder on the phone) overrides any feature by its index
+function genAvatarSVG(seed,o){
+  o=o||{};
+  const r=mulberry(seed*9301+49297), p=a=>a[Math.floor(r()*a.length)], O_=(k,v,list)=>Number.isInteger(o[k])?(list?list[o[k]]:o[k]):v;
+  const skin=O_("skin",p(SKIN),SKIN), hair=O_("hair",p(HAIR),HAIR), top=O_("top",p(TOP),TOP), bottom=O_("bottom",p(BOTTOM),BOTTOM), shoe=O_("shoe",p(SHOE),SHOE);
+  const lh0=r()<.4, hs0=lh0?["long","pony","bob","bun","curlyLong"][Math.floor(r()*5)]:["spiky","side","curly","buzz","quiff"][Math.floor(r()*5)];
+  const hs=O_("hs",hs0,HAIRSTYLES), longHair=HAIRSTYLES.indexOf(hs)<5;
+  const g0=r()<.22, f0=r()<.25, lashes=longHair?r()<.75:r()<.1, b0=!longHair&&r()<.12;
+  const glasses=!!O_("glasses",g0), freckles=!!O_("freckles",f0), beard=!!O_("beard",b0);
+  const pose=O_("pose",Math.floor(r()*3)), topKind=O_("topKind",Math.floor(r()*3)), logo=O_("logo",Math.floor(r()*6)), sk0=longHair&&r()<.3, skirt=!!O_("skirt",sk0), smile=O_("smile",Math.floor(r()*3));
   const O='stroke="#2a1a14" stroke-width="1.3" stroke-linejoin="round"', topD=shade(top,-.22), skinD=shade(skin,-.12), hairL=shade(hair,.18);
   const sleeve=(d)=>`<path d="${d}" fill="none" stroke="#2a1a14" stroke-width="12.6" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${top}" stroke-width="10" stroke-linecap="round"/>`;
   const hand=(x,y)=>`<circle cx="${x}" cy="${y}" r="5.2" fill="${skin}" ${O}/>`;
@@ -43,7 +48,8 @@ function genAvatarSVG(seed){
   let armsBack="", armsFront="";
   if(pose===0){ armsFront=sleeve("M39 78 Q28 80 22 70")+thumb(20,66)+sleeve("M81 78 Q87 90 84 101"); }
   else if(pose===1){ armsFront=sleeve("M39 78 Q33 90 33 101")+hand(33,105)+sleeve("M81 78 Q87 90 87 101")+hand(87,105); }
-  else { armsFront=sleeve("M39 78 Q33 90 34 101")+hand(34,105)+sleeve("M81 78 Q92 72 96 60")+`<g ${O} fill="${skin}"><ellipse cx="97" cy="54" rx="5.6" ry="6.4"/></g><path d="M94 49 L93 46 M97 48 L97 44.5 M100 49 L101 46" stroke="#2a1a14" stroke-width="1" stroke-linecap="round"/>`; }
+  else { armsFront=sleeve("M39 78 Q33 90 34 101")+hand(34,105)+`<g class="av-wave">`+sleeve("M81 78 Q92 72 96 60")+`<g ${O} fill="${skin}"><ellipse cx="97" cy="54" rx="5.6" ry="6.4"/></g><path d="M94 49 L93 46 M97 48 L97 44.5 M100 49 L101 46" stroke="#2a1a14" stroke-width="1" stroke-linecap="round"/></g>`; }
+  if(pose===0) armsFront=armsFront.replace(sleeve("M39 78 Q28 80 22 70")+thumb(20,66),`<g class="av-thumb">${sleeve("M39 78 Q28 80 22 70")+thumb(20,66)}</g>`);
   // top: hoodie, sweater or t-shirt (t-shirt shows the forearms)
   const logos=[
     `<path d="M60 84 l2.4 5 5.4.6-4 3.7 1.1 5.3-4.9-2.7-4.9 2.7 1.1-5.3-4-3.7 5.4-.6z" fill="#f6c343" stroke="#2a1a14" stroke-width=".8"/>`,
@@ -83,19 +89,21 @@ function genAvatarSVG(seed){
   const gl=glasses?`<g fill="rgba(255,255,255,.12)" stroke="#1b1b2f" stroke-width="1.6"><rect x="43" y="45" width="14" height="11" rx="4"/><rect x="63" y="45" width="14" height="11" rx="4"/><path d="M57 50 H63 M43 49 L37 47 M77 49 L83 47" fill="none"/></g>`:"";
   const bd=beard?`<path d="M38 56 Q42 74 60 75 Q78 74 82 56 Q78 66 60 67 Q42 66 38 56Z" fill="${hair}" opacity=".9"/>`:"";
   return `<svg viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><ellipse cx="60" cy="149" rx="34" ry="4.5" fill="#000" opacity=".22"/>
-  ${legs}${shoes}${hb}${armsBack}${body}${armsFront}${ears}${face}${hf}${bd}${fr}${blush}${brows}${eyes}${nose}${mouth}${gl}</svg>`;
+  ${legs}${shoes}${hb}${armsBack}${body}${armsFront}${ears}${face}${hf}${bd}${fr}${blush}${brows}<g class="av-eyes">${eyes}</g>${nose}${mouth}${gl}</svg>`;
 }
 function initials(name){ return name.split(/[\s-]+/).filter(Boolean).slice(0,2).map(s=>s[0].toUpperCase()).join(""); }
 // Avatars are full-length portraits (3:4): "size" is the height, the width follows, and the whole picture is shown
 const AV_RATIO=.75;
-function avatarHTML(av, name, size=64, extra=""){
+const avHash=s=>{ let h=7; for(const c of String(s)) h=(h*31+c.charCodeAt(0))>>>0; return h; };
+function avatarHTML(av, name, size=64, extra="", cls=""){
   av=av||{kind:"gen",seed:1};
   let inner;
   if(av.kind==="img" && av.src) inner=`<img src="${esc(av.src)}" alt="" loading="lazy" decoding="async">`;
   else if(av.kind==="emoji") inner=`<div class="emo" style="font-size:${Math.round(size*.42)}px">${esc(av.v)}</div>`;
   else if(av.kind==="ini") inner=`<div class="ini" style="background:${esc(av.color||"#3c49d6")};font-size:${Math.round(size*.3)}px">${esc(initials(name||"?"))}</div>`;
-  else inner=genAvatarSVG(+av.seed||1);
-  return `<span class="av" style="width:${Math.round(size*AV_RATIO)}px;height:${size}px;${extra}" role="img" aria-label="${esc(name||"avatar")}">${inner}</span>`;
+  else inner=genAvatarSVG(+av.seed||1,av.o);
+  const h=avHash((name||"")+(av.seed||av.v||av.src||"").toString().slice(-12));      // each avatar moves with its own rhythm
+  return `<span class="av ${cls}" style="width:${Math.round(size*AV_RATIO)}px;height:${size}px;--d:-${(h%3000)/1000}s;--d2:-${(h%7919)/1000}s;${extra}" role="img" aria-label="${esc(name||"avatar")}">${inner}</span>`;
 }
 /* Imported picture -> avatar: white (or plain) background removed, trimmed to the character, fitted in 3:4, light WebP.
    Returns a data URL. */
@@ -160,3 +168,46 @@ async function api(path, body){
   if(r.status===401) j.unauthorized=true;
   return j;
 }
+
+/* ================= Souvenir picture (podium + every player) ================= */
+function avatarImage(av,name){
+  return new Promise(res=>{
+    const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null);
+    if(av&&av.kind==="img"&&av.src){ im.src=av.src; return; }
+    if(av&&(av.kind==="emoji"||av.kind==="ini")){
+      const t=av.kind==="emoji"?av.v:initials(name||"?"), bg=av.kind==="ini"?(av.color||"#3c49d6"):"none";
+      const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160">${bg!=="none"?`<rect width="120" height="160" rx="16" fill="${bg}"/>`:""}<text x="60" y="${av.kind==="emoji"?100:98}" font-size="${av.kind==="emoji"?64:44}" text-anchor="middle" font-family="Arial,sans-serif" font-weight="800" fill="#fff">${esc(t)}</text></svg>`;
+      im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg); return; }
+    im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(genAvatarSVG(+(av&&av.seed)||1,av&&av.o));
+  });
+}
+async function souvenirCanvas(d,mePid){
+  const W=1600, players=d.players||[], top=players.filter(p=>p.rank<=3).slice(0,3), rest=players;
+  const cols=Math.max(6,Math.min(12,Math.ceil(Math.sqrt(rest.length*2.2)))), cw=W/cols-10, ch=cw/AV_RATIO*.62, rows=Math.ceil(rest.length/cols);
+  const H=Math.round(560+rows*(ch+40)+90);
+  const c=document.createElement("canvas"); c.width=W; c.height=H; const g=c.getContext("2d");
+  const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,"#1a1f9a"); bg.addColorStop(.45,"#0a0c62"); bg.addColorStop(1,"#04052e"); g.fillStyle=bg; g.fillRect(0,0,W,H);
+  for(let i=0;i<140;i++){ g.fillStyle=`rgba(255,255,255,${.15+Math.random()*.5})`; g.fillRect(Math.random()*W,Math.random()*H,2,2); }
+  g.textAlign="center"; g.fillStyle="#f2c14e"; g.font="800 54px 'Barlow Condensed',Arial,sans-serif"; g.fillText(d.title||"Qui veut gagner des applaudissements ?",W/2,78);
+  g.fillStyle="#d9e6ff"; g.font="600 26px Barlow,Arial,sans-serif"; g.fillText([d.subtitle,new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})].filter(Boolean).join(" · "),W/2,118);
+  const imgs=await Promise.all(players.map(p=>avatarImage(p.avatar,p.name)));
+  const imgOf=p=>imgs[players.indexOf(p)];
+  const draw=(p,x,y,h,ring)=>{ const w=h*AV_RATIO, im=imgOf(p);
+    g.save(); g.beginPath(); g.roundRect?g.roundRect(x-w/2,y,w,h,w*.14):g.rect(x-w/2,y,w,h); g.fillStyle="#2a30b0"; g.fill(); g.clip();
+    if(im){ const k=Math.min(w/im.width,h/im.height); g.drawImage(im,x-im.width*k/2,y+h-im.height*k,im.width*k,im.height*k); }
+    g.restore(); if(ring){ g.lineWidth=5; g.strokeStyle=ring; g.beginPath(); g.roundRect?g.roundRect(x-w/2,y,w,h,w*.14):g.rect(x-w/2,y,w,h); g.stroke(); } };
+  // podium
+  const spots={1:[W/2,250,250],2:[W/2-330,300,205],3:[W/2+330,330,180]};
+  for(const p of top){ const [x,y,h]=spots[p.rank]||spots[3]; draw(p,x,y-h+150,h,"#f2c14e");
+    if(p.rank===1){ g.font="64px serif"; g.fillText("👑",x,y-h+140); }
+    g.fillStyle="#fff"; g.font="800 34px 'Barlow Condensed',Arial,sans-serif"; g.fillText(p.name,x,y+195);
+    g.fillStyle="#f2c14e"; g.font="700 26px Barlow,Arial,sans-serif"; g.fillText(`${p.rank===1?"1er":p.rank+"e"} · ${p.points} pt${p.points>1?"s":""}`,x,y+228); }
+  // everyone
+  g.fillStyle="#9aa9d6"; g.font="600 24px Barlow,Arial,sans-serif"; g.fillText(`Tous les joueurs (${rest.length})`,W/2,555);
+  rest.forEach((p,i)=>{ const col=i%cols, row=Math.floor(i/cols), n=Math.min(cols,rest.length-row*cols), x0=W/2-(n*(cw+10))/2+(cw+10)/2;
+    const x=x0+col*(cw+10), y=580+row*(ch+40); draw(p,x,y,ch,p.pid===mePid?"#f2c14e":null);
+    g.fillStyle=p.pid===mePid?"#f2c14e":"#fff"; g.font="600 18px Barlow,Arial,sans-serif"; g.fillText(p.name.length>14?p.name.slice(0,13)+"…":p.name,x,y+ch+24); });
+  g.fillStyle="#9aa9d6"; g.font="italic 20px Barlow,Arial,sans-serif"; g.fillText("Merci d'avoir joué !",W/2,H-30);
+  return c;
+}
+function downloadCanvas(c,name){ c.toBlob(b=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500); },"image/png"); }

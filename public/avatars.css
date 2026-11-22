@@ -1,0 +1,35 @@
+/* Living avatars (projected screen and phones) */
+.av>svg,.av>img{transform-origin:50% 100%}
+.av-eyes{transform-box:fill-box;transform-origin:center}
+.av-wave{transform-box:view-box;transform-origin:81px 78px}
+.av-thumb{transform-box:view-box;transform-origin:39px 78px}
+@media (prefers-reduced-motion:no-preference){
+  /* idle: breathing and swaying, each avatar with its own rhythm (--d) */
+  .av.alive>svg,.av.alive>img{animation:avIdle 3.4s ease-in-out infinite;animation-delay:var(--d,0s)}
+  .av.alive .av-eyes{animation:avBlink 4.6s infinite;animation-delay:var(--d2,0s)}
+  .av.alive .av-wave{animation:avWave 2.2s ease-in-out infinite;animation-delay:var(--d,0s)}
+  .av.alive .av-thumb{animation:avThumb 2.8s ease-in-out infinite;animation-delay:var(--d,0s)}
+  /* arrival: drops in and bounces */
+  .av.enter>svg,.av.enter>img{animation:avEnter .9s cubic-bezier(.3,1.4,.5,1) both,avIdle 3.4s ease-in-out .9s infinite}
+  /* joy: jumps; with .loop it keeps jumping */
+  .av.jump>svg,.av.jump>img{animation:avJump .7s ease-out 2}
+  .av.jump.loop>svg,.av.jump.loop>img{animation:avJump .75s ease-out infinite;animation-delay:calc(var(--d,0s) / 6)}
+  /* disappointment: shakes then slumps */
+  .av.sad>svg,.av.sad>img{animation:avSad 1.1s ease-in-out both}
+  /* raises a hand / small hop when the player answers */
+  .av.hop>svg,.av.hop>img{animation:avHop .6s ease-out}
+  .av.dance>svg,.av.dance>img{animation:avDance 1.1s ease-in-out infinite;animation-delay:calc(var(--d,0s) / 4)}
+}
+.av.sad{filter:grayscale(.45) brightness(.82);transition:filter .8s}
+@keyframes avIdle{0%,100%{transform:translateY(0) rotate(0) scaleY(1)}25%{transform:rotate(-1.6deg) scaleY(1.018)}50%{transform:translateY(0) scaleY(.985)}75%{transform:rotate(1.6deg) scaleY(1.018)}}
+@keyframes avBlink{0%,93%,100%{transform:scaleY(1)}95.5%{transform:scaleY(.08)}}
+@keyframes avWave{0%,100%{transform:rotate(0)}25%{transform:rotate(-14deg)}75%{transform:rotate(10deg)}}
+@keyframes avThumb{0%,100%{transform:rotate(0)}50%{transform:rotate(-8deg) translateY(-2px)}}
+@keyframes avEnter{0%{transform:translateY(-120%) scaleY(1.1);opacity:0}55%{transform:translateY(4%) scaleY(.86) scaleX(1.08);opacity:1}75%{transform:translateY(-6%) scaleY(1.04)}100%{transform:none}}
+@keyframes avJump{0%{transform:none}20%{transform:scaleY(.86) scaleX(1.08)}50%{transform:translateY(-22%) scaleY(1.06)}80%{transform:translateY(0) scaleY(.92) scaleX(1.05)}100%{transform:none}}
+@keyframes avSad{0%{transform:none}15%{transform:translateX(-6%) rotate(-4deg)}30%{transform:translateX(6%) rotate(4deg)}45%{transform:translateX(-4%)}60%{transform:none}100%{transform:translateY(4%) scaleY(.94) rotate(-3deg)}}
+@keyframes avHop{0%{transform:none}35%{transform:translateY(-14%) rotate(-4deg)}70%{transform:translateY(0) scaleY(.94)}100%{transform:none}}
+@keyframes avDance{0%,100%{transform:rotate(-6deg) translateY(0)}25%{transform:rotate(0) translateY(-8%)}50%{transform:rotate(6deg) translateY(0)}75%{transform:rotate(0) translateY(-8%)}}
+/* sparkles around a happy avatar */
+.spark{position:absolute;pointer-events:none;font-size:20px;animation:spark 1.4s ease-out forwards}
+@keyframes spark{0%{transform:translate(0,0) scale(.3);opacity:0}20%{opacity:1}100%{transform:translate(var(--sx),var(--sy)) scale(1.1);opacity:0}}
