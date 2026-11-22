@@ -9,6 +9,11 @@ let es = null, tick = null, lostTimer = null;
 const L = "ABCD";
 const EMOJIS = "😀 😎 🤓 🥳 😇 🤠 🦊 🐻 🐼 🐨 🦁 🐯 🐸 🐵 🦉 🐧 🐙 🦄 🐬 🦀 🐢 🌻 ⚓ ⛵ 🏰 🚀 ⚡ 🔥 🍀 ⭐ 🎯 🏆".split(" ");
 let joinAv = { kind: "gen", seed: rnd(1e6) }, seeds = [...Array(8)].map(() => rnd(1e6)), showEmo = false, joinErr = "", joinName = "";
+const BANKEY = "qvgda_banned";
+function showBanned() {
+  stopTick(); lastSig = "";
+  app.innerHTML = `<div class="brand">Qui veut gagner des applaudissements ?</div><div class="card center"><p class="big">Vous ne participez plus à cette partie</p><p class="dim" style="margin-bottom:0">L'animateur vous a retiré du jeu.</p></div>`;
+}
 let voteShown = {};
 let lastSig = "";          // qid -> true once the vote animation has played
 
@@ -51,6 +56,7 @@ async function join() {
   if (!name) { joinErr = "Indiquez votre prénom."; return renderJoin(); }
   $("#go").disabled = true;
   let r; try { r = await api("/api/join", { name, avatar: joinAv }); } catch (e) { r = { ok: false, error: "Connexion impossible. Vérifiez le réseau et réessayez." }; }
+  if (r.banned) return showBanned();
   if (!r.ok) { joinErr = r.error || "Inscription impossible."; return renderJoin(); }
   joinErr = ""; saveMe({ pid: r.pid, token: r.token, name }); connect();
   try { navigator.vibrate && navigator.vibrate(30); } catch (e) { }
@@ -64,7 +70,9 @@ function connect() {
   es = new EventSource(`/api/stream?role=player&pid=${encodeURIComponent(ME.pid)}&token=${encodeURIComponent(ME.token)}`);
   es.onmessage = e => {
     const m = JSON.parse(e.data);
-    if (m.type === "kicked") { es.close(); saveMe(null); joinErr = "L'animateur a réinitialisé la liste des joueurs : rejoignez à nouveau la partie."; return renderJoin(); }
+    if (m.type === "kicked") { es.close(); saveMe(null);
+      if (m.banned) { try { localStorage.setItem(BANKEY, m.gameId || "1"); } catch (e) { } return showBanned(); }
+      joinErr = "L'animateur a réinitialisé la liste des joueurs : rejoignez à nouveau la partie."; return renderJoin(); }
     if (m.type === "unknown") { es.close(); return lost(); }
     if (m.type === "state") { clearTimeout(lostTimer); V = m.state; if (V.q && V.q.serverNow) clockOffset = V.q.serverNow - Date.now(); render(); }
   };
@@ -123,7 +131,8 @@ function render(force) {
       <div class="result ${r ? (r.ok ? "ok" : "ko") : "none"}"><div class="t">${r ? (r.ok ? "Bonne réponse !" : "Mauvaise réponse…") : "Pas de réponse"}</div>
       <div class="p">${r ? (r.ok ? "+ " + ptsTxt(r.points) : "0 point") : "0 point"}</div></div>
       <div class="card"><span class="lbl">La bonne réponse</span><div class="ans good" style="min-height:52px"><span class="L">${L[q.correct]}</span><span>${esc(q.answers[q.correct])}</span></div>
-      ${r && !r.ok ? `<p class="dim" style="margin:10px 0 0">Vous aviez répondu ${L[q.mine]} : « ${esc(q.answers[q.mine])} »</p>` : ""}</div>${meHTML()}`;
+      ${r && !r.ok ? `<p class="dim" style="margin:10px 0 0">Vous aviez répondu ${L[q.mine]} : « ${esc(q.answers[q.mine])} »</p>` : ""}</div>
+      ${q.note ? `<div class="card"><span class="lbl">👉 Le saviez-vous ?</span><p style="margin:0;line-height:1.45;color:#fff">${esc(q.note)}</p></div>` : ""}${meHTML()}`;
     try { navigator.vibrate && navigator.vibrate(r && r.ok ? [40, 60, 40] : 120); } catch (e) { }
     return;
   }
@@ -197,4 +206,13 @@ async function joker(k, btn) {
 }
 
 /* ------------------------------------------------------------------- boot */
-if (ME && ME.pid) connect(); else renderJoin();
+(async () => {
+  // a player excluded by the host stays out of this game (a new game lifts it)
+  let banned = null; try { banned = localStorage.getItem(BANKEY); } catch (e) { }
+  if (banned) {
+    const g = await fetch("/api/game", { cache: "no-store" }).then(r => r.json()).catch(() => null);
+    if (g && g.gameId === banned) return showBanned();
+    try { localStorage.removeItem(BANKEY); } catch (e) { }
+  }
+  if (ME && ME.pid) connect(); else renderJoin();
+})();

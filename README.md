@@ -72,7 +72,10 @@ Variante : le fichier `render.yaml` permet aussi de passer par **New + → Bluep
 - **Un joueur qui ferme son navigateur** retrouve sa place en rouvrant la page sur le même téléphone.
 - **Bonne réponse** : elle n'est envoyée aux téléphones qu'au moment de la révélation, impossible de tricher en inspectant la page.
 - **Capacité** : testé avec 120 joueurs simultanés (120 réponses traitées en moins d'un dixième de seconde, environ 60 Mo de mémoire).
-- **Gestion des joueurs** : sur le tableau des questions, le bouton « 👥 joueurs connectés » permet de retirer un joueur (pseudo déplacé, doublon…).
+- **Gestion des joueurs** : cliquez sur un joueur dans le mur de l'accueil, ou sur le bouton « 👥 joueurs connectés » du tableau des questions, pour :
+  - **changer son avatar** (personnage, émoji, initiales ou photo importée) : il change aussi sur son téléphone ;
+  - **l'exclure du jeu** : ses points sont retirés, son téléphone affiche qu'il ne participe plus, et il ne peut pas revenir sous ce nom. La liste « Exclus » permet de le réautoriser.
+- **Avatars devant les réponses** : dès que les réponses sont closes, l'avatar de chaque joueur apparaît en face de la réponse qu'il a choisie (au-delà de 9 joueurs sur une réponse, un compteur « +N » s'affiche).
 - **Tester en local** : `ADMIN_PASSWORD=test node server.js`, puis ouvrez `http://localhost:3000/admin`. Les téléphones doivent être sur le même réseau Wi-Fi et utiliser l'adresse IP du PC (le QR code affiche l'adresse de la page animateur : ouvrez-la avec l'IP, pas avec `localhost`).
 
 ## Contenu du projet
@@ -87,6 +90,6 @@ public/player.*        page joueur (téléphone)
 public/common.js       avatars et utilitaires communs
 public/default-config.js  questions proposées au premier lancement
 public/sounds/         musiques jouées sur le PC animateur
-exemples/nantes.json            15 questions « Spécial Nantes », de la plus facile à la plus difficile
+exemples/nantes.json            15 questions « Spécial Nantes » (niveau relevé), avec un laïus après chaque réponse
 exemples/immersion-achats.json  les 10 questions de l'immersion, avec illustrations
 ```

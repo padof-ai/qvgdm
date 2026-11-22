@@ -42,6 +42,7 @@ function freshState() {
     cur: null,                     // current question (with the correct answer, never sent to players before reveal)
     results: {},                   // qid -> {label, correct, at, rows: {pid -> {choice, ok, points, ms, jokers}}}
     order: [],                     // qids in the order they were played
+    banned: [],                    // players excluded by the host: [{name, avatar, at}]
     show: { screen: "home" },      // what the projected screen shows (phones follow it)
   };
 }
@@ -94,12 +95,13 @@ function adminView() {
     deadline: G.cur.deadline, openedAt: G.cur.openedAt, phase: G.phase,
     answered: Object.keys(G.cur.answers_by).length,
     dist: [0, 1, 2, 3].map(i => Object.values(G.cur.answers_by).filter(a => a.choice === i).length),
+    picks: ["closed", "revealed"].includes(G.phase) ? Object.fromEntries(Object.entries(G.cur.answers_by).filter(([, a]) => a.choice != null).map(([pid, a]) => [pid, a.choice])) : null,
     jokers: Object.values(G.cur.answers_by).concat(Object.values(G.cur.jokerOnly)).reduce((a, x) => { for (const k of ["fifty", "public", "phone"]) if (x.jokers && x.jokers[k]) a[k]++; return a; }, { fifty: 0, public: 0, phone: 0 }),
   };
   return {
     gameId: G.gameId, phase: G.phase, show: G.show, settings: G.settings, cur,
     players: [...G.players.values()].map(p => ({ ...publicPlayer(p), online: online(p.pid), score: sc.byPid[p.pid] })),
-    results: G.results, order: G.order, ranking: sc.list,
+    results: G.results, order: G.order, ranking: sc.list, banned: G.banned.map(x => ({ name: x.name, avatar: x.avatar })),
   };
 }
 function playerView(pid, sc) {
@@ -119,7 +121,7 @@ function playerView(pid, sc) {
       used: usedHere, avail, phoneUntil: (a && a.phoneUntil) || null };
     if (G.phase === "revealed") {
       const r = G.results[G.cur.qid]; const row = r && r.rows[pid];
-      v.q.correct = G.cur.correct; v.q.result = row ? { ok: row.ok, points: row.points } : null;
+      v.q.correct = G.cur.correct; v.q.note = G.cur.note || ""; v.q.result = row ? { ok: row.ok, points: row.points } : null;
     }
   }
   return v;
@@ -181,7 +183,7 @@ function adminAction(b) {
       const answers = [0, 1, 2, 3].map(i => clean((q.answers || [])[i], 300));
       G.cur = { qid: clean(q.id, 40), label: clean(q.label, 120), n: +q.n || 0, text: clean(q.text, 1000), answers,
         correct: Math.max(0, Math.min(3, +q.correct || 0)), points: Math.max(0, +q.points || 0), jokerCost: Math.max(0, +q.jokerCost || 0),
-        difficulty: Math.max(1, Math.min(4, +q.difficulty || 2)), answers_by: {}, jokerOnly: {}, openedAt: null, deadline: null, timer: null };
+        difficulty: Math.max(1, Math.min(4, +q.difficulty || 2)), note: clean(q.note, 1500), answers_by: {}, jokerOnly: {}, openedAt: null, deadline: null, timer: null };
     }
     G.show = { screen: "question" };
     if (a === "intro") { G.phase = "intro"; pushAll(); return { ok: true }; }
@@ -205,7 +207,19 @@ function adminAction(b) {
     for (const p of G.players.values()) p.jokersUsed = {};
     pushAll(); return { ok: true };
   }
-  if (a === "kick") { G.players.delete(b.pid); for (const c of clients) if (c.pid === b.pid) send(c, { type: "kicked" }); pushAll(); return { ok: true }; }
+  if (a === "kick") {                       // exclude a player: removed from the game and cannot come back under that name
+    const p = G.players.get(b.pid); if (!p) return { ok: false };
+    G.players.delete(b.pid);
+    if (b.ban !== false && !G.banned.some(x => x.name.toLowerCase() === p.name.toLowerCase())) G.banned.push({ name: p.name, avatar: p.avatar, at: now() });
+    for (const c of clients) if (c.pid === b.pid) send(c, { type: "kicked", banned: b.ban !== false, gameId: G.gameId });
+    for (const r of Object.values(G.results)) delete r.rows[b.pid];
+    pushAll(); return { ok: true };
+  }
+  if (a === "unban") { G.banned = G.banned.filter(x => x.name.toLowerCase() !== String(b.name || "").toLowerCase()); pushAll(); return { ok: true }; }
+  if (a === "avatar") {                     // the host picks the avatar of a player
+    const p = G.players.get(b.pid); const av = cleanAvatar(b.avatar, true); if (!p || !av) return { ok: false };
+    p.avatar = av; pushAll(); return { ok: true };
+  }
   if (a === "clearPlayers") {
     for (const c of clients) if (c.role === "player") send(c, { type: "kicked" });
     const s = G.settings; G = freshState(); G.settings = s; pushAll(); return { ok: true };
@@ -215,11 +229,11 @@ function adminAction(b) {
     if (G.players.size || G.order.length) return { ok: false, reason: "busy" };
     G.gameId = clean(s.gameId, 20) || G.gameId;
     for (const p of s.players.slice(0, MAX_PLAYERS)) if (p && p.pid && p.token) G.players.set(p.pid, { pid: p.pid, token: p.token, name: clean(p.name, 24), avatar: p.avatar, joinedAt: p.joinedAt || now(), jokersUsed: p.jokersUsed || {} });
-    G.results = s.results || {}; G.order = Array.isArray(s.order) ? s.order : []; G.show = { screen: "hub" }; G.phase = "lobby";
+    G.results = s.results || {}; G.order = Array.isArray(s.order) ? s.order : []; G.banned = Array.isArray(s.banned) ? s.banned : []; G.show = { screen: "hub" }; G.phase = "lobby";
     pushAll(); return { ok: true };
   }
   if (a === "snapshot") {                   // full copy (with player tokens) kept by the projected PC
-    return { ok: true, snapshot: { gameId: G.gameId, players: [...G.players.values()], results: G.results, order: G.order } };
+    return { ok: true, snapshot: { gameId: G.gameId, players: [...G.players.values()], results: G.results, order: G.order, banned: G.banned } };
   }
   return { ok: false, error: "action inconnue" };
 }
@@ -241,10 +255,11 @@ function playerAction(path, b) {
     if (back) return { ok: true, pid: back.pid, token: back.token, gameId: G.gameId };
     const name = clean(b.name, 24);
     if (!name) return { ok: false, error: "Indiquez votre prénom." };
+    if (G.banned.some(x => x.name.toLowerCase() === name.toLowerCase())) return { ok: false, banned: true, error: "L'animateur vous a retiré de cette partie." };
     if ([...G.players.values()].some(p => p.name.toLowerCase() === name.toLowerCase()))
       return { ok: false, error: "Ce nom est déjà pris : ajoutez l'initiale de votre nom (ex. : « Marie D. »)." };
     if (G.players.size >= MAX_PLAYERS) return { ok: false, error: "La partie est complète." };
-    const av = b.avatar && typeof b.avatar === "object" ? (b.avatar.kind === "emoji" ? { kind: "emoji", v: clean(b.avatar.v, 16) } : { kind: "gen", seed: Math.abs(+b.avatar.seed || 1) % 1e7 }) : { kind: "gen", seed: rnd(1e6) };
+    const av = cleanAvatar(b.avatar, false) || { kind: "gen", seed: rnd(1e6) };
     const p = { pid: rid(8), token: rid(18), name, avatar: av, joinedAt: now(), jokersUsed: {} };
     G.players.set(p.pid, p); pushAll();
     return { ok: true, pid: p.pid, token: p.token, gameId: G.gameId };
@@ -279,6 +294,15 @@ function playerAction(path, b) {
   return { ok: false };
 }
 
+// Avatars: generated character, emoji or initials; photos only when chosen by the host
+function cleanAvatar(a, allowImg) {
+  if (!a || typeof a !== "object") return null;
+  if (a.kind === "emoji") return { kind: "emoji", v: clean(a.v, 16) };
+  if (a.kind === "ini") return { kind: "ini", color: /^#[0-9a-f]{6}$/i.test(a.color) ? a.color : "#3c49d6" };
+  if (a.kind === "img" && allowImg && typeof a.src === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a.src) && a.src.length < 70000) return { kind: "img", src: a.src };
+  if (a.kind === "gen") return { kind: "gen", seed: Math.abs(Math.round(+a.seed) || 1) % 1e7 };
+  return null;
+}
 /* ------------------------------------------------------------------ QR code */
 function qrSVG(text) {
   const qr = new QRCode(-1, QRErrorCorrectLevel.M); qr.addData(text); qr.make();
@@ -313,6 +337,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && (p === "/" || p === "/jouer")) return serveFile(res, path.join(PUBLIC, "player.html"));
     if (req.method === "GET" && p === "/admin") return serveFile(res, path.join(PUBLIC, "admin.html"));
+    if (req.method === "GET" && p === "/api/game") return json(res, 200, { gameId: G.gameId });
     if (req.method === "GET" && p === "/healthz") return json(res, 200, { ok: true, players: G.players.size });
     if (req.method === "GET" && p === "/api/qr.svg") {
       const t = (url.searchParams.get("t") || "").slice(0, 300);

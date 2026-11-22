@@ -22,19 +22,19 @@
  "questions": [
   {
    "id": "nq1",
-   "label": "1. Le fleuve",
-   "text": "Quel fleuve traverse Nantes ?",
+   "label": "1. L'île natale",
+   "text": "Jules Verne est né en 1828 sur une ancienne île de la Loire, au cœur de Nantes. Laquelle ?",
    "answers": [
-    "La Seine",
-    "La Loire",
-    "La Garonne",
-    "Le Rhône"
+    "L'île Feydeau",
+    "L'île de Nantes",
+    "L'île Gloriette",
+    "L'île Beaulieu"
    ],
-   "correct": 1,
-   "difficulty": 1,
+   "correct": 0,
+   "difficulty": 2,
    "points": 2,
    "jokerCost": null,
-   "note": "La Loire, plus long fleuve de France (environ 1 000 km), se jette dans l'Atlantique à Saint-Nazaire, à une cinquantaine de kilomètres de Nantes.",
+   "note": "Jules Verne naît le 8 février 1828 au 4, rue Olivier-de-Clisson, chez sa grand-mère, sur l'île Feydeau. Cette île artificielle était alors entourée par les bras de la Loire, comblés dans la première moitié du XXe siècle : on y marche aujourd'hui à pied sec. Le grand voyageur imaginaire a grandi face au port, en regardant partir les navires.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -46,19 +46,19 @@
   },
   {
    "id": "nq2",
-   "label": "2. L'écrivain",
-   "text": "Quel écrivain est né à Nantes en 1828 ?",
+   "label": "2. Le rang",
+   "text": "Avec environ 325 000 habitants, quelle place occupe Nantes parmi les communes les plus peuplées de France ?",
    "answers": [
-    "Victor Hugo",
-    "Alexandre Dumas",
-    "Jules Verne",
-    "Gustave Flaubert"
+    "4e",
+    "6e",
+    "8e",
+    "10e"
    ],
-   "correct": 2,
-   "difficulty": 1,
+   "correct": 1,
+   "difficulty": 2,
    "points": 2,
    "jokerCost": null,
-   "note": "Jules Verne est né le 8 février 1828 sur l'île Feydeau. Le musée Jules Verne, sur la butte Sainte-Anne, domine la Loire et les anciens chantiers navals.",
+   "note": "Nantes est la 6e commune de France, après Paris, Marseille, Lyon, Toulouse et Nice, avec 325 070 habitants selon l'Insee (données 2022). La métropole, qui regroupe 24 communes, compte près de 680 000 habitants. Et la population continue de croître chaque année.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -70,19 +70,19 @@
   },
   {
    "id": "nq3",
-   "label": "3. Le biscuit",
-   "text": "Le célèbre biscuit LU est né à Nantes. Que signifient ces deux lettres ?",
+   "label": "3. Le cinéaste",
+   "text": "Quel réalisateur a tourné « Lola » (1961) à Nantes, notamment dans le passage Pommeraye ?",
    "answers": [
-    "Lefèvre-Utile",
-    "Loire Unie",
-    "Les Usines",
-    "Lait Uniquement"
+    "François Truffaut",
+    "Claude Chabrol",
+    "Jacques Demy",
+    "Agnès Varda"
    ],
-   "correct": 0,
-   "difficulty": 1,
+   "correct": 2,
+   "difficulty": 2,
    "points": 2,
    "jokerCost": null,
-   "note": "LU vient de Lefèvre-Utile, du nom du couple fondateur, Jean-Romain Lefèvre et Pauline-Isabelle Utile. Leur fils Louis a créé le Petit Beurre en 1886. L'ancienne usine abrite aujourd'hui le Lieu Unique, scène nationale.",
+   "note": "Jacques Demy a grandi à Nantes, où son père tenait un garage. Il y tourne « Lola » en 1960, avec Anouk Aimée dans le rôle-titre, et fait du passage Pommeraye l'un des décors clés du film. Le piège : Agnès Varda était sa compagne, et c'est elle qui lui a consacré « Jacquot de Nantes » en 1991.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -94,19 +94,19 @@
   },
   {
    "id": "nq4",
-   "label": "4. Les Machines",
-   "text": "Quel animal géant des Machines de l'île peut-on chevaucher à Nantes ?",
+   "label": "4. Le BN",
+   "text": "Le biscuit BN vient de la Biscuiterie nantaise. En quelle année a été lancé le Choco BN, fourré au chocolat ?",
    "answers": [
-    "Un dragon",
-    "Une baleine",
-    "Une girafe",
-    "Un éléphant"
+    "1896",
+    "1933",
+    "1968",
+    "1992"
    ],
-   "correct": 3,
-   "difficulty": 1,
-   "points": 2,
+   "correct": 1,
+   "difficulty": 3,
+   "points": 3,
    "jokerCost": null,
-   "note": "Le Grand Éléphant a transporté environ 1,5 million de passagers depuis 2007. Attention, il est en maintenance jusqu'au 26 février 2027 : il reprend du service le 27 février.",
+   "note": "La Biscuiterie nantaise (BN) est fondée en 1896 par Pierre Pelletreau : c'était le piège ! Son produit phare de l'entre-deux-guerres est le Casse-croûte, puis arrive le Choco BN en 1933, avec son célèbre visage souriant sur une face. BN appartient aujourd'hui au groupe Pladis.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -118,19 +118,19 @@
   },
   {
    "id": "nq5",
-   "label": "5. Le football",
-   "text": "Quel est le surnom des joueurs du FC Nantes ?",
+   "label": "5. Le palmarès",
+   "text": "Combien de fois le FC Nantes a-t-il été champion de France ?",
    "answers": [
-    "Les Verts",
-    "Les Merlus",
-    "Les Dogues",
-    "Les Canaris"
+    "3 fois",
+    "5 fois",
+    "8 fois",
+    "10 fois"
    ],
-   "correct": 3,
-   "difficulty": 2,
-   "points": 2,
+   "correct": 2,
+   "difficulty": 3,
+   "points": 3,
    "jokerCost": null,
-   "note": "Les Canaris, en référence au maillot jaune. Les Verts, c'est Saint-Étienne, les Merlus Lorient, les Dogues Lille.",
+   "note": "Le FC Nantes a été 8 fois champion de France, la dernière fois en 2001. Le club a aussi gagné 4 Coupes de France, la plus récente en 2022. Son « jeu à la nantaise », fait de passes courtes et de mouvement, a marqué l'histoire du football français.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -142,19 +142,19 @@
   },
   {
    "id": "nq6",
-   "label": "6. Le vin",
-   "text": "Quel vin blanc est produit dans le vignoble nantais ?",
+   "label": "6. La révocation",
+   "text": "L'édit de Nantes a été signé en 1598. En quelle année a-t-il été révoqué ?",
    "answers": [
-    "Le Chablis",
-    "Le Sancerre",
-    "Le Muscadet",
-    "Le Riesling"
+    "1610",
+    "1629",
+    "1685",
+    "1789"
    ],
    "correct": 2,
-   "difficulty": 2,
+   "difficulty": 3,
    "points": 3,
    "jokerCost": null,
-   "note": "Le Muscadet est produit autour de Nantes, notamment en Sèvre-et-Maine. Il accompagne traditionnellement les huîtres et les fruits de mer.",
+   "note": "Henri IV signe l'édit de Nantes en 1598 pour accorder la liberté de culte aux protestants et mettre fin aux guerres de Religion. Louis XIV le révoque en 1685 par l'édit de Fontainebleau. Des dizaines de milliers de protestants quittent alors la France.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -166,19 +166,19 @@
   },
   {
    "id": "nq7",
-   "label": "7. La ligne au sol",
-   "text": "De quelle couleur est la ligne peinte au sol qui guide les visiteurs du Voyage à Nantes ?",
+   "label": "7. Les Machines",
+   "text": "Qui sont les créateurs des Machines de l'île ?",
    "answers": [
-    "Rouge",
-    "Bleue",
-    "Jaune",
-    "Verte"
+    "François Delarozière et Pierre Orefice",
+    "Daniel Buren et Patrick Bouchain",
+    "Jean-Luc Courcoult et Royal de Luxe",
+    "Jean Blaise et le Voyage à Nantes"
    ],
-   "correct": 3,
-   "difficulty": 2,
+   "correct": 0,
+   "difficulty": 3,
    "points": 3,
    "jokerCost": null,
-   "note": "La ligne verte relie une soixantaine d'étapes artistiques et patrimoniales sur une vingtaine de kilomètres. Idéal pour visiter la ville pendant votre séjour !",
+   "note": "François Delarozière, cofondateur de la compagnie La Machine, et Pierre Orefice, directeur du projet, imaginent les Machines de l'île en 2003, sur les anciens chantiers navals de l'île de Nantes. Le Grand Éléphant y a transporté environ 1,5 million de passagers depuis 2007. Attention : il est en maintenance jusqu'au 26 février 2027.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -190,19 +190,19 @@
   },
   {
    "id": "nq8",
-   "label": "8. L'édit",
-   "text": "Quel roi a signé l'édit de Nantes en 1598 ?",
+   "label": "8. Le château",
+   "text": "Quel duc de Bretagne a lancé en 1466 la reconstruction du château des ducs, tel qu'on le connaît aujourd'hui ?",
    "answers": [
-    "Henri IV",
-    "Louis XIV",
-    "François Ier",
-    "Louis XIII"
+    "Jean V",
+    "Pierre II",
+    "Arthur III",
+    "François II"
    ],
-   "correct": 0,
-   "difficulty": 2,
-   "points": 3,
+   "correct": 3,
+   "difficulty": 3,
+   "points": 4,
    "jokerCost": null,
-   "note": "Henri IV signe l'édit de Nantes en 1598 pour mettre fin aux guerres de Religion. Louis XIV le révoquera en 1685 (édit de Fontainebleau).",
+   "note": "François II fait du château à la fois une résidence de la cour ducale et une forteresse. Sa fille, Anne de Bretagne, y naît en 1477. Devenu ensuite arsenal, caserne et prison, le château est ravagé le 25 mai 1800 par l'explosion de la tour des Espagnols, qui fait 60 morts. Racheté par la Ville en 1915, il abrite depuis 2007 le musée d'histoire de Nantes, sur 32 salles.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -214,19 +214,19 @@
   },
   {
    "id": "nq9",
-   "label": "9. Le gâteau",
-   "text": "Quel alcool parfume le gâteau nantais ?",
+   "label": "9. Le cépage",
+   "text": "Le Muscadet est produit à partir d'un seul cépage. Lequel ?",
    "answers": [
-    "Le calvados",
-    "Le cognac",
-    "Le rhum",
-    "Le kirsch"
+    "Le chenin",
+    "Le chardonnay",
+    "Le melon de Bourgogne",
+    "Le sauvignon"
    ],
    "correct": 2,
-   "difficulty": 2,
-   "points": 3,
+   "difficulty": 3,
+   "points": 4,
    "jokerCost": null,
-   "note": "Le rhum rappelle le passé portuaire de Nantes et ses échanges avec les Antilles. Le gâteau nantais associe amandes, beurre et rhum, sous un glaçage blanc.",
+   "note": "Le melon de Bourgogne est le cépage unique de l'AOC Muscadet. Comme son nom l'indique, il vient de Bourgogne, d'où le piège du chardonnay ! La mention « sur lie » signifie que le vin est élevé sur ses lies, ce qui lui donne plus de rondeur et une légère fraîcheur.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -238,19 +238,19 @@
   },
   {
    "id": "nq10",
-   "label": "10. La duchesse",
-   "text": "Quelle duchesse, deux fois reine de France, est née au château de Nantes en 1477 ?",
+   "label": "10. L'ancien nom",
+   "text": "Avant 1957, comment s'appelait le département de la Loire-Atlantique ?",
    "answers": [
-    "Aliénor d'Aquitaine",
-    "Anne de Bretagne",
-    "Catherine de Médicis",
-    "Marie Stuart"
+    "Loire-Maritime",
+    "Basse-Loire",
+    "Loire-Inférieure",
+    "Loire-Océane"
    ],
-   "correct": 1,
+   "correct": 2,
    "difficulty": 3,
    "points": 4,
    "jokerCost": null,
-   "note": "Anne de Bretagne naît le 25 janvier 1477 au château des ducs de Bretagne. Épouse de Charles VIII puis de Louis XII, elle a été deux fois reine de France.",
+   "note": "Le département s'est appelé Loire-Inférieure jusqu'au 9 mars 1957. Le mot « inférieure » désignait simplement la partie basse du fleuve, mais il était jugé peu flatteur. La Seine-Inférieure et la Charente-Inférieure ont aussi changé de nom.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -262,19 +262,19 @@
   },
   {
    "id": "nq11",
-   "label": "11. La rivière",
-   "text": "Quelle rivière, qui rejoint la Loire à Nantes, François Ier aurait qualifiée de « plus belle rivière de France » ?",
+   "label": "11. Le tramway",
+   "text": "En 1985, Nantes a été la première ville de France à remettre en service un tramway moderne. Quelle ville a suivi, en 1987 ?",
    "answers": [
-    "La Sèvre nantaise",
-    "La Vilaine",
-    "La Maine",
-    "L'Erdre"
+    "Strasbourg",
+    "Grenoble",
+    "Bordeaux",
+    "Montpellier"
    ],
-   "correct": 3,
-   "difficulty": 3,
+   "correct": 1,
+   "difficulty": 4,
    "points": 4,
    "jokerCost": null,
-   "note": "L'Erdre, bordée de châteaux et de « folies », se parcourt en bateau depuis le centre de Nantes. Elle rejoint la Loire en passant sous la ville par le canal Saint-Félix.",
+   "note": "Le tramway moderne de Nantes est mis en service le 7 janvier 1985, une première en France. Grenoble suit en 1987 et devient la deuxième ville française à retrouver le tram. Strasbourg, Bordeaux ou Montpellier suivront bien plus tard. Lille, Marseille et Saint-Étienne, elles, n'avaient jamais totalement abandonné le leur.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -286,19 +286,19 @@
   },
   {
    "id": "nq12",
-   "label": "12. La capitale verte",
-   "text": "En quelle année Nantes a-t-elle été élue « Capitale verte de l'Europe » ?",
+   "label": "12. Les Anneaux",
+   "text": "Combien d'anneaux compte l'œuvre de Daniel Buren et Patrick Bouchain installée quai des Antilles ?",
    "answers": [
-    "2008",
-    "2013",
-    "2019",
-    "2024"
+    "8",
+    "12",
+    "18",
+    "24"
    ],
-   "correct": 1,
-   "difficulty": 3,
-   "points": 4,
+   "correct": 2,
+   "difficulty": 4,
+   "points": 5,
    "jokerCost": null,
-   "note": "Nantes a été Capitale verte de l'Europe en 2013, après Stockholm, Hambourg et Vitoria-Gasteiz. La ville compte de nombreux parcs, dont le Jardin des plantes, face à la gare.",
+   "note": "Les Anneaux de Buren sont 18, alignés le long du quai des Antilles et tournés vers la Loire. Ils encadrent le paysage comme autant de fenêtres sur le fleuve. La nuit, ils s'illuminent en rouge, bleu et vert : une étape incontournable de la ligne verte du Voyage à Nantes.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -310,19 +310,19 @@
   },
   {
    "id": "nq13",
-   "label": "13. L'ancien nom",
-   "text": "Avant 1957, comment s'appelait le département de la Loire-Atlantique ?",
+   "label": "13. Le cœur de la reine",
+   "text": "Où est conservé l'écrin en or du cœur d'Anne de Bretagne ?",
    "answers": [
-    "Loire-Inférieure",
-    "Basse-Loire",
-    "Loire-Maritime",
-    "Loire-Océane"
+    "Au musée Dobrée",
+    "Au château des ducs de Bretagne",
+    "À la cathédrale Saint-Pierre",
+    "Au musée d'arts de Nantes"
    ],
    "correct": 0,
    "difficulty": 4,
    "points": 5,
    "jokerCost": null,
-   "note": "Le département s'appelait la Loire-Inférieure jusqu'en mars 1957. Comme d'autres départements « inférieurs » (Seine-Inférieure, Charente-Inférieure), il a changé de nom jugé peu flatteur.",
+   "note": "L'écrin en or est conservé au musée Dobrée depuis 1896. Il a été volé dans la nuit du 13 au 14 avril 2018, puis retrouvé une semaine plus tard, enterré près de Saint-Nazaire. Détail surprenant : le reliquaire est vide depuis au moins 1727, le cœur s'étant probablement désagrégé.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -335,7 +335,7 @@
   {
    "id": "nq14",
    "label": "14. Le passage",
-   "text": "En quelle année a été achevé le passage Pommeraye, galerie marchande emblématique de Nantes ?",
+   "text": "En quelle année a été achevé le passage Pommeraye ?",
    "answers": [
     "1789",
     "1843",
@@ -346,7 +346,7 @@
    "difficulty": 4,
    "points": 5,
    "jokerCost": null,
-   "note": "Le passage Pommeraye, achevé en 1843, porte le nom de son promoteur, Louis Pommeraye. Ses escaliers et ses statues ont servi de décor à plusieurs films, dont « Lola » de Jacques Demy.",
+   "note": "Le passage Pommeraye est achevé en 1843, après moins de trois ans de travaux. Il porte le nom de son promoteur, Louis Pommeraye. Sur trois niveaux reliés par un grand escalier, ses statues et ses boutiques en font l'un des plus beaux passages couverts de France.",
    "imgMode": "none",
    "img": null,
    "aImgs": [
@@ -358,19 +358,19 @@
   },
   {
    "id": "nq15",
-   "label": "15. Le tramway",
-   "text": "En 1985, Nantes est devenue la première ville de France à…",
+   "label": "15. Le futur CHU",
+   "text": "Le futur CHU de Nantes, sur l'île de Nantes, est présenté comme l'un des plus grands chantiers hospitaliers d'Europe. Combien de lits et places comptera-t-il ?",
    "answers": [
-    "Inaugurer un métro automatique",
-    "Créer des vélos en libre-service",
-    "Réintroduire un tramway moderne",
-    "Rendre son centre-ville piéton"
+    "Environ 500",
+    "Environ 1 500",
+    "Environ 3 000",
+    "Environ 6 000"
    ],
-   "correct": 2,
+   "correct": 1,
    "difficulty": 4,
    "points": 5,
    "jokerCost": null,
-   "note": "Le 7 janvier 1985, Nantes remet en service un tramway « moderne », une première en France, qui a lancé la renaissance du tram dans tout le pays. Le réseau compte aujourd'hui 3 lignes.",
+   "note": "Le futur CHU comptera 1 527 lits et places, dont 90 % en chambres individuelles, et 57 blocs opératoires, sur environ 230 000 m². Il représente un investissement d'environ 1,25 milliard d'euros. Son ouverture, prévue en 2027, a été repoussée à l'été 2028 après la faillite d'une entreprise chargée des façades.",
    "imgMode": "none",
    "img": null,
    "aImgs": [

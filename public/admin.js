@@ -308,7 +308,7 @@ async function onState(st){
 }
 // Light refresh of the current screen; full renders only when the situation changes
 function update(prev){
-  if(screen==="home"){ const w=$("#wall"); if(w){ w.innerHTML=wallHTML(); const c=$("#nPl"); if(c) c.textContent=plCount(); return; } }
+  if(screen==="home"){ const w=$("#wall"); if(w){ w.innerHTML=wallHTML(); bindWall(); const c=$("#nPl"); if(c) c.textContent=plCount(); return; } }
   if(screen==="hub"){ return renderHub(); }
   if(screen==="intro"){ const c=$("#nOn"); if(c) c.textContent=onlineCount(); return; }
   if(screen==="question"){
@@ -323,7 +323,31 @@ const onlineCount = () => S ? S.players.filter(p=>p.online).length : 0;
 const plCount = () => { const n=S?S.players.length:0; return `${n} joueur${n>1?"s":""}`; };
 function wallHTML(){
   if(!S||!S.players.length) return `<p class="wait">En attente des premiers joueurs…</p>`;
-  return S.players.map(p=>`<div class="pl ${p.online?"":"off"}" title="${esc(p.name)}${p.online?"":" (déconnecté)"}">${avatarHTML(p.avatar,p.name,52)}<span>${esc(p.name)}</span></div>`).join("");
+  return S.players.map(p=>`<button class="pl ${p.online?"":"off"}" data-pl="${p.pid}" title="${esc(p.name)}${p.online?"":" (déconnecté)"} : changer l'avatar ou exclure">${avatarHTML(p.avatar,p.name,52)}<span>${esc(p.name)}</span></button>`).join("");
+}
+function bindWall(){ app.querySelectorAll("[data-pl]").forEach(b=>b.onclick=()=>playerCard(b.dataset.pl)); }
+// The host picks a player's avatar (character, emoji, initials or photo)
+function pickPlayerAvatar(pid,after){
+  const p=playerById(pid); if(!p) return;
+  const tmp={first:p.name,last:"",avatar:p.avatar};
+  avatarPicker(tmp,async()=>{ const r=await admin("avatar",{pid,avatar:tmp.avatar}); if(!r.ok) toast("Avatar refusé : choisissez une image plus légère (JPG ou PNG)."); else toast(`Avatar de ${p.name} modifié`); after&&setTimeout(after,250); });
+}
+async function excludePlayer(pid){
+  const p=playerById(pid); if(!p) return false;
+  if(!await ask(`Exclure ${p.name} du jeu ? Ses points sont retirés, son téléphone affiche qu'il ne participe plus, et il ne pourra pas revenir sous ce nom (sauf si vous le réautorisez).`,{ok:"Exclure"})) return false;
+  await admin("kick",{pid}); toast(`${p.name} a été exclu du jeu`); return true;
+}
+function playerCard(pid){
+  const draw=ov=>{
+    const p=playerById(pid); if(!p){ ov._close(); return; }
+    ov.querySelector(".ovp").innerHTML=`<div style="text-align:center">${avatarHTML(p.avatar,p.name,120)}<h3 style="margin-top:10px">${esc(p.name)}</h3>
+      <p>${p.online?"● connecté":"○ déconnecté"} · ${ptsTxt(p.score?p.score.points:0)}</p></div>
+      <div class="row center" style="margin-top:8px"><button class="btn" id="cAv">Changer l'avatar</button><button class="btn ghost" id="cEx">Exclure du jeu</button><button class="btn gold" id="cX">Fermer</button></div>`;
+    $("#cAv",ov).onclick=()=>pickPlayerAvatar(pid,()=>draw(ov));
+    $("#cEx",ov).onclick=async()=>{ if(await excludePlayer(pid)) ov._close(); };
+    $("#cX",ov).onclick=()=>ov._close();
+  };
+  const ov=overlay("","Joueur",520); draw(ov);
 }
 
 /* ------------------------------------------------------------- screens */
@@ -356,6 +380,7 @@ function renderHome(){
     <div class="hright">${qrCard(true)}<div class="plhead"><b id="nPl">${plCount()}</b> inscrits</div><div class="wall2" id="wall">${wallHTML()}</div></div>
   </section>`;
   $("#bStart").onclick=()=>go("hub");
+  bindWall();
   play("generique",{restart:false});
 }
 
@@ -440,9 +465,13 @@ function managePlayers(){
   const draw=ov=>{
     const ps=(S.players||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,"fr"));
     ov.querySelector(".ovp").innerHTML=`<h3>Joueurs (${ps.length})</h3><p>${onlineCount()} connecté${onlineCount()>1?"s":""} en ce moment</p>
-      <div style="display:flex;flex-direction:column;gap:6px">${ps.map(p=>`<div class="rk" style="grid-template-columns:auto 1fr auto auto;font-size:18px">${avatarHTML(p.avatar,p.name,34)}<span>${esc(p.name)} <small style="color:${p.online?"#7dffb7":"var(--ice-dim)"};font-size:.7em">${p.online?"● connecté":"○ déconnecté"}</small></span><b>${ptsTxt(p.score?p.score.points:0)}</b><span class="adj"><button data-kick="${p.pid}" title="Retirer ${esc(p.name)}" aria-label="Retirer ${esc(p.name)}">✕</button></span></div>`).join("")||`<p>Aucun joueur inscrit.</p>`}</div>
+      <div style="display:flex;flex-direction:column;gap:6px"><p style="margin-top:-8px">Cliquez sur un avatar pour le changer.</p>
+      ${ps.map(p=>`<div class="rk" style="grid-template-columns:auto 1fr auto auto;font-size:18px"><button class="avbtn" data-av="${p.pid}" title="Changer l'avatar de ${esc(p.name)}" aria-label="Changer l'avatar de ${esc(p.name)}">${avatarHTML(p.avatar,p.name,40)}</button><span>${esc(p.name)} <small style="color:${p.online?"#7dffb7":"var(--ice-dim)"};font-size:.7em">${p.online?"● connecté":"○ déconnecté"}</small></span><b>${ptsTxt(p.score?p.score.points:0)}</b><button class="exbtn" data-kick="${p.pid}" aria-label="Exclure ${esc(p.name)}">Exclure</button></div>`).join("")||`<p>Aucun joueur inscrit.</p>`}</div>
+      ${(S.banned||[]).length?`<h3 style="font-size:20px;margin-top:18px">Exclus (${S.banned.length})</h3><div style="display:flex;flex-direction:column;gap:6px">${S.banned.map(x=>`<div class="rk" style="grid-template-columns:auto 1fr auto;font-size:18px;opacity:.8">${avatarHTML(x.avatar,x.name,30)}<span>${esc(x.name)}</span><button class="exbtn" data-unban="${esc(x.name)}">Réautoriser</button></div>`).join("")}</div>`:""}
       <div class="row center" style="margin-top:16px">${ps.length?`<button class="btn ghost" id="pClr">Vider la liste</button>`:""}<button class="btn gold" id="pX">Fermer</button></div>`;
-    ov.querySelectorAll("[data-kick]").forEach(b=>b.onclick=async()=>{ const p=playerById(b.dataset.kick); if(p && await ask(`Retirer ${p.name} de la partie ? Ses points sont perdus.`,{ok:"Retirer"})){ await admin("kick",{pid:p.pid}); setTimeout(()=>draw(ov),200); } });
+    ov.querySelectorAll("[data-kick]").forEach(b=>b.onclick=async()=>{ if(await excludePlayer(b.dataset.kick)) setTimeout(()=>draw(ov),250); });
+    ov.querySelectorAll("[data-av]").forEach(b=>b.onclick=()=>pickPlayerAvatar(b.dataset.av,()=>draw(ov)));
+    ov.querySelectorAll("[data-unban]").forEach(b=>b.onclick=async()=>{ await admin("unban",{name:b.dataset.unban}); toast(`${b.dataset.unban} peut à nouveau rejoindre la partie`); setTimeout(()=>draw(ov),250); });
     $("#pX",ov).onclick=()=>ov._close();
     $("#pClr",ov)&&($("#pClr",ov).onclick=async()=>{ if(await ask("Retirer tous les joueurs et effacer les scores ? Chacun devra rescanner le QR code.",{ok:"Vider la liste"})){ await admin("clearPlayers"); save(KEY_SNAP,null); setTimeout(()=>draw(ov),200); } });
   };
@@ -475,7 +504,7 @@ async function playQuestion(qid){
   await admin("intro",{q:payload(q)});
   go("intro");
 }
-function payload(q){ return {id:q.id,label:qLabel(q),n:CFG.questions.indexOf(q)+1,text:q.text,answers:q.answers,correct:q.correct,points:basePts(q),jokerCost:jokerPts(q),difficulty:q.difficulty}; }
+function payload(q){ return {id:q.id,label:qLabel(q),note:q.note||"",n:CFG.questions.indexOf(q)+1,text:q.text,answers:q.answers,correct:q.correct,points:basePts(q),jokerCost:jokerPts(q),difficulty:q.difficulty}; }
 function renderIntro(){
   const q=CUR.q;
   app.innerHTML=`<section class="screen intro">
@@ -551,13 +580,24 @@ function renderQuestion(){
     <div class="qzone">
       <div class="wire"><div class="qbox">${esc(q.text)}</div></div>
       <div class="answers">${q.answers.map((a,i)=>{ const pc=tot?Math.round(dist[i]/tot*100):0;
-        return `<div class="wire"><div class="ans ${revealed&&i===q.correct?"good":""}" style="${revealed&&i!==q.correct?"opacity:.75":""}"><span class="L">${L[i]} :</span><span style="flex:1">${esc(a)}</span>${revealed?`<span class="pct"><i style="width:${pc}%"></i><b>${pc} %</b></span>`:""}</div></div>`; }).join("")}</div>
+        return `<div class="wire"><div class="ans ${revealed&&i===q.correct?"good":""}" style="${revealed&&i!==q.correct?"opacity:.75":""}"><span class="L">${L[i]} :</span><span style="flex:1">${esc(a)}</span><span class="picks" data-pk="${i}"></span>${revealed?`<span class="pct"><i style="width:${pc}%"></i><b>${pc} %</b></span>`:""}</div></div>`; }).join("")}</div>
       <div class="qfoot" id="qfoot"></div>
     </div></section>`;
   app.querySelectorAll("[data-zoom]").forEach(b=>b.onclick=()=>zoom(b.dataset.zoom));
   if(big) fitQuestionImage();
-  updateLive(); footer();
+  updateLive(); footer(); renderPicks(false);
   if(ph==="question"){ if(!isPlaying("question")) play("question",{restart:false}); startTimer(); }
+}
+// Once answers are closed, each player's avatar appears in front of the answer they chose
+function renderPicks(animate){
+  const pk=S&&S.cur&&S.cur.picks; if(!pk) return;
+  const by=[[],[],[],[]]; Object.entries(pk).forEach(([pid,c])=>{ const p=playerById(pid); if(p&&by[c]) by[c].push(p); });
+  const MAX=9; let k=0;
+  app.querySelectorAll("[data-pk]").forEach(el=>{
+    const ps=by[+el.dataset.pk], extra=ps.length-MAX;
+    el.title=ps.map(p=>p.name).join(", ");
+    el.innerHTML=ps.slice(0,extra>0?MAX-1:MAX).map(p=>`<span class="pk" style="${animate?`animation-delay:${(k++)*70}ms`:"animation:none"}">${avatarHTML(p.avatar,p.name,38)}</span>`).join("")+(extra>0?`<span class="pkmore">+${extra+1}</span>`:"");
+  });
 }
 function updateLive(){
   const c=$("#cnt"); if(!c||!S.cur) return;
@@ -590,7 +630,7 @@ function phaseChanged(pph){
   const ph=S.phase;
   if(ph==="closed"){ clearInterval(timerInt); stop("question",400); play("suspense");
     if(CFG.revealMode==="auto") revealT=setTimeout(()=>admin("reveal"),Math.max(1,Math.min(10,+CFG.suspenseSec||6))*1000);
-    const t=$("#timer"); if(t) t.remove(); updateLive(); footer(); return; }
+    const t=$("#timer"); if(t) t.remove(); updateLive(); footer(); renderPicks(true); return; }
   if(ph==="revealed"){ endSuspense(); stop("question",200); play("good"); renderQuestion(); const r=S.results[CUR.q.id]; if(r&&Object.values(r.rows).some(x=>x.ok)) confetti(1800); return; }
   if(ph==="question"){ renderQuestion(); return; }
 }
