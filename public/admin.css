@@ -411,3 +411,15 @@ img{max-width:100%}
 @media (prefers-reduced-motion:no-preference){ .picks .pk{animation:pkin .45s cubic-bezier(.2,.9,.3,1.4) both} }
 @keyframes pkin{from{transform:scale(0) translateY(8px);opacity:0}to{transform:none;opacity:1}}
 .pkmore{margin-left:4px;font-family:var(--display);font-weight:800;font-size:18px;color:#fff;background:var(--violet);border:2px solid #fff;border-radius:999px;padding:2px 8px}
+
+/* crop editor */
+.cropp{max-width:920px}
+.cropstage{position:relative;display:inline-block;max-width:100%;line-height:0;overflow:hidden;border-radius:6px;background:#111;touch-action:none;user-select:none}
+.cropstage img{display:block;max-width:min(100%,880px);max-height:58vh;width:auto;height:auto}
+.cropbox{position:absolute;box-shadow:0 0 0 9999px rgba(4,5,46,.62);outline:2px solid #fff;cursor:move}
+.cropbox .cg{position:absolute;inset:0;pointer-events:none;background:
+  linear-gradient(to right,transparent 33.2%,rgba(255,255,255,.45) 33.2%,rgba(255,255,255,.45) 33.6%,transparent 33.6%,transparent 66.4%,rgba(255,255,255,.45) 66.4%,rgba(255,255,255,.45) 66.8%,transparent 66.8%),
+  linear-gradient(to bottom,transparent 33.2%,rgba(255,255,255,.45) 33.2%,rgba(255,255,255,.45) 33.6%,transparent 33.6%,transparent 66.4%,rgba(255,255,255,.45) 66.4%,rgba(255,255,255,.45) 66.8%,transparent 66.8%)}
+.cropbox .ch{position:absolute;width:22px;height:22px;background:#f2c14e;border:2px solid #fff;border-radius:3px;z-index:1}
+.cropbox .ch.nw{left:-2px;top:-2px;cursor:nwse-resize}.cropbox .ch.se{right:-2px;bottom:-2px;cursor:nwse-resize}
+.cropbox .ch.ne{right:-2px;top:-2px;cursor:nesw-resize}.cropbox .ch.sw{left:-2px;bottom:-2px;cursor:nesw-resize}

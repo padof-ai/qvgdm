@@ -48,11 +48,10 @@ Variante : le fichier `render.yaml` permet aussi de passer par **New + → Bluep
 1. **5 minutes avant**, ouvrez `https://votre-adresse.onrender.com/admin` sur le PC relié au vidéoprojecteur. Sur l'offre gratuite, le serveur s'endort après 15 minutes sans visite : le premier chargement peut prendre jusqu'à une minute. Tant que la page animateur reste ouverte, elle le garde éveillé.
 2. Saisissez le mot de passe (`ADMIN_PASSWORD`). Il est mémorisé sur ce PC.
 3. Paramètres (⚙) : vérifiez vos questions. Les 15 questions « Spécial Nantes » sont proposées au premier lancement ; si vous aviez déjà ouvert la page animateur, importez `exemples/nantes.json` (onglet **Sauvegarde → Importer**). Pour l'immersion, importez `exemples/immersion-achats.json` (onglet **Sauvegarde → Importer**) : les 10 questions et leurs 10 illustrations sont chargées.
-exemples/Questions-quiz.xlsx    toutes les questions dans Excel : sélection (Oui/Non), ordre, modification, puis import direct dans le jeu
 4. Passez en plein écran (⛶ ou F11). L'accueil affiche le **QR code** : les participants le scannent, saisissent leur prénom et choisissent un avatar. Ils apparaissent en direct sur l'écran.
 5. **Lancer le jeu** → cliquez sur une question → **Afficher la question** : elle s'affiche sur l'écran **et** sur tous les téléphones.
 6. Les réponses se closent quand tout le monde a répondu, à la fin du temps imparti ou avec **Clore les réponses**. Musique de suspense, puis **Révéler la bonne réponse** (ou touche Entrée) : pourcentages par réponse, les plus rapides, votre rebond 👉, et chaque téléphone affiche son résultat.
-7. **Classement** : classement individuel, aussi affiché sur chaque téléphone. **À points égaux, le joueur le plus rapide passe devant** (temps cumulé sur ses bonnes réponses) : il y a toujours un gagnant unique pour le lot.
+7. **Classement** : classement individuel, aussi affiché sur chaque téléphone. **À points égaux, le joueur le plus rapide passe devant** : il y a (presque) toujours un gagnant unique pour le lot (voir « Départage des ex-aequo » plus bas).
 
 ## Ce qui change par rapport à la version HTML
 
@@ -69,6 +68,8 @@ exemples/Questions-quiz.xlsx    toutes les questions dans Excel : sélection (Ou
 ## Bon à savoir
 
 - **Préparer les questions dans Excel** : remplissez `exemples/Questions-quiz.xlsx` (Oui/Non, ordre, textes, laïus), puis Paramètres › Sauvegarde › Importer : seules les questions en « Oui » remplacent celles du jeu.
+- **Départage des ex-aequo par la vitesse** (Paramètres › Général, activé par défaut) : pour chaque bonne réponse, le serveur mesure le temps entre l'ouverture de la question et le moment où le joueur touche sa réponse. Le temps passé pendant l'appel à un ami n'est pas compté. À points égaux, le plus petit temps cumulé passe devant. Après chaque révélation, chaque téléphone affiche « ⏱ Réponse en 4,2 s ». Au classement, le temps cumulé apparaît à côté des joueurs à égalité de points, et leur téléphone indique qu'ils ont été départagés à la vitesse. Si vous décochez l'option, les joueurs à égalité restent ex-aequo.
+- **Recadrer une photo** : Paramètres › Questions, bouton **✂ Recadrer** sous chaque illustration. Choisissez un format (d'origine, libre, 16:9, 4:3, carré, portrait), déplacez le cadre et tirez ses coins, ou réglez sa taille avec le curseur. **Garder l'image entière** annule le recadrage. Pour les 4 photos des réponses, **✂ Recadrer les 4 au même format…** enchaîne les quatre avec le même format : elles s'affichent alors toutes à la même taille. La photo d'origine est conservée : vous pouvez recadrer à nouveau autant de fois que nécessaire, et l'export .json la garde aussi.
 - **Vos réglages** (questions, illustrations, sons) restent dans le navigateur du PC animateur. Exportez-les (onglet Sauvegarde) pour animer depuis un autre ordinateur. Les fichiers .json de la version HTML s'importent aussi.
 - **La partie en cours** (joueurs, scores) est gardée en mémoire par le serveur et recopiée sur le PC animateur. Si Render redémarre le serveur en pleine partie, la page animateur renvoie automatiquement sa copie : les joueurs se reconnectent tout seuls, sans perdre leurs points.
 - **Un joueur qui ferme son navigateur** retrouve sa place en rouvrant la page sur le même téléphone.
@@ -94,4 +95,5 @@ public/default-config.js  questions proposées au premier lancement
 public/sounds/         musiques jouées sur le PC animateur
 exemples/nantes.json            15 questions « Spécial Nantes » (niveau relevé), avec un laïus après chaque réponse
 exemples/immersion-achats.json  les 10 questions de l'immersion, avec illustrations
+exemples/Questions-quiz.xlsx    toutes les questions dans Excel : sélection (Oui/Non), ordre, modification, puis import direct dans le jeu
 ```

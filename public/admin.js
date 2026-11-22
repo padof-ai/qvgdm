@@ -17,6 +17,7 @@ const NS="";
 const KEY_CFG="qvgda_online_config_v1", KEY_SNAP="qvgda_online_snapshot_v1", KEY_ADMIN="qvgda_online_admin_key";
 function load(k){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):null; }catch(e){ return null; } }
 function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ toast("Sauvegarde impossible : stockage plein ou indisponible. Pensez à exporter la configuration."); return false; } }
+const cleanCrop=c=>c&&typeof c==="object"&&[c.x,c.y,c.w,c.h].every(v=>isFinite(+v))?{x:+c.x,y:+c.y,w:+c.w,h:+c.h,ratio:String(c.ratio||"free")}:null;
 const numOrNull=v=>(v===null||v===undefined||v===""||!isFinite(+v))?null:Math.max(0,Math.min(1000,Math.round(+v)));
 function normalizeConfig(c){
   const d=clone(DEFAULT_CONFIG);
@@ -34,12 +35,14 @@ function normalizeConfig(c){
   o.jokers=Object.assign({fifty:true,public:true,phone:false}, (c&&c.jokers)||{});
   o.jokerScope=(c&&c.jokerScope)==="question"?"question":"game";
   o.autoClose=!(c&&c.autoClose===false);
+  o.tieSpeed=!(c&&c.tieSpeed===false);
   o.basePoints=Math.max(1,+o.basePoints||3); o.jokerCost=Math.max(0,o.jokerCost==null?1:+o.jokerCost);
   o.questions=Array.isArray(o.questions)?o.questions.map(q=>({id:q.id||uid("q"),text:String(q.text||""),answers:[0,1,2,3].map(i=>String((q.answers||[])[i]||"")),
     correct:Math.min(3,Math.max(0,+q.correct||0)), label:String(q.label||""), note:String(q.note||""),
     jokerCost:numOrNull(q.jokerCost), points:numOrNull(q.points),
     difficulty:[1,2,3,4].includes(+q.difficulty)?+q.difficulty:2,
-    imgMode:["none","single","answers"].includes(q.imgMode)?q.imgMode:"none",img:q.img||null,aImgs:[0,1,2,3].map(i=>(q.aImgs||[])[i]||null)})):[];
+    imgMode:["none","single","answers"].includes(q.imgMode)?q.imgMode:"none",img:q.img||null,aImgs:[0,1,2,3].map(i=>(q.aImgs||[])[i]||null),
+    imgOrig:q.imgOrig||null,imgCrop:cleanCrop(q.imgCrop),aOrig:[0,1,2,3].map(i=>(q.aOrig||[])[i]||null),aCrop:[0,1,2,3].map(i=>cleanCrop((q.aCrop||[])[i]))})):[];
   o.soundOn=Object.assign({}, (c&&c.soundOn)||{});
   o.soundVol=Object.assign({}, (c&&c.soundVol)||{});
   o.suspenseSec=Math.max(1,Math.min(10, o.suspenseSec==null?6:+o.suspenseSec));
@@ -170,7 +173,7 @@ async function loadImages(){
     await new Promise(r=>{ const q=st.openCursor(); q.onsuccess=()=>{ const c=q.result; if(!c) return r(); IMGBLOB[c.key]=c.value; IMG[c.key]=URL.createObjectURL(c.value); c.continue(); }; q.onerror=()=>r(); });
   }catch(e){}
 }
-function resizeImage(file,max=1100){
+function resizeImage(file,max=1600){
   return new Promise((res,rej)=>{ const url=URL.createObjectURL(file), im=new Image();
     im.onload=()=>{ const s=Math.min(1,max/Math.max(im.width,im.height)), c=document.createElement("canvas"); c.width=Math.round(im.width*s); c.height=Math.round(im.height*s);
       const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(url); c.toBlob(b=>b?res(b):rej(),"image/jpeg",.85); };
@@ -181,9 +184,10 @@ async function addImage(file){
   try{ await idbOp("readwrite",st=>st.put(blob,id),"images"); }catch(e){ toast("Cette image ne pourra pas être conservée après fermeture (stockage indisponible)."); }
   IMGBLOB[id]=blob; IMG[id]=URL.createObjectURL(blob); return id;
 }
-async function removeImage(id){ if(!id) return; const used=CFG.questions.some(q=>q.img===id||q.aImgs.includes(id)); if(used) return; if(IMG[id]){ URL.revokeObjectURL(IMG[id]); delete IMG[id]; } delete IMGBLOB[id]; }
+const imageIdsOf = q => [q.img,q.imgOrig,...q.aImgs,...(q.aOrig||[])].filter(Boolean);
+async function removeImage(id){ if(!id) return; const used=CFG.questions.some(q=>imageIdsOf(q).includes(id)); if(used) return; if(IMG[id]){ URL.revokeObjectURL(IMG[id]); delete IMG[id]; } delete IMGBLOB[id]; }
 async function exportMedia(){
-  const ids=new Set(); CFG.questions.forEach(q=>{ if(q.img) ids.add(q.img); q.aImgs.forEach(i=>i&&ids.add(i)); });
+  const ids=new Set(); CFG.questions.forEach(q=>imageIdsOf(q).forEach(i=>ids.add(i)));
   const out={};
   for(const id of ids){ const blob=IMGBLOB[id]; if(!blob) continue;
     out[id]=await new Promise((r,j)=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.onerror=()=>j(fr.error); fr.readAsDataURL(blob); }); }
@@ -256,7 +260,7 @@ async function admin(action, extra){
   if(r.unauthorized){ ADMIN_KEY=""; try{ localStorage.removeItem(KEY_ADMIN); }catch(e){} renderLogin("Mot de passe incorrect ou modifié."); }
   return r;
 }
-function serverSettings(){ return { jokers:CFG.jokers, jokerScope:CFG.jokerScope, phoneSec:CFG.phoneSec, autoClose:CFG.autoClose }; }
+function serverSettings(){ return { jokers:CFG.jokers, jokerScope:CFG.jokerScope, phoneSec:CFG.phoneSec, autoClose:CFG.autoClose, tieSpeed:CFG.tieSpeed }; }
 let syncT; function syncSettings(){ clearTimeout(syncT); syncT=setTimeout(()=>{ if(connected) admin("settings",{settings:serverSettings()}); },200); }
 
 /* ---------------------------------------------------------------- login */
@@ -553,7 +557,7 @@ function fitQuestionImage(){
     const hOver=fit(freeW, mr.bottom-tr.top-16);
     if(blockH(hOver)>blockH(best)+24){ best=hOver; over=true; }
   }
-  if(over){ sec.classList.add("overlay"); box.style.top=`${-(mr.top-sec.getBoundingClientRect().top)+6}px`; } else box.style.top="8px";
+  if(over){ sec.classList.add("overlay"); /* .qtop leaves the flow: measure again */ box.style.top=`${Math.max(0,top.getBoundingClientRect().top-med.getBoundingClientRect().top)+6}px`; } else box.style.top="8px";
   if(grid){
     const ch=Math.round(best), cw=Math.round(best*a);
     box.style.gap=`${GAP}px`;
@@ -562,6 +566,20 @@ function fitQuestionImage(){
   } else imgs[0].style.height=Math.round(best)+"px";
 }
 addEventListener("resize",()=>{ if(screen==="question") fitQuestionImage(); });
+// the banner, counters, picks or buttons can change size after the first fit: fit again (once per frame)
+let qObs=null, qRaf=0;
+function watchQuestionLayout(){
+  if(qObs) qObs.disconnect();
+  if(typeof ResizeObserver!=="function") return;
+  const sec=$(".qscreen.withimg"); if(!sec) return;
+  const last=new Map();
+  qObs=new ResizeObserver(entries=>{
+    let changed=false;
+    for(const e of entries){ const r=e.target.getBoundingClientRect(), k=Math.round(r.width)+"x"+Math.round(r.height); if(last.get(e.target)!==k){ last.set(e.target,k); changed=true; } }
+    if(changed && !qRaf) qRaf=requestAnimationFrame(()=>{ qRaf=0; if(screen==="question" && document.contains(sec)) fitQuestionImage(); else if(qObs) qObs.disconnect(); });
+  });
+  [$(".qtop .players",sec),$(".qtop .stake",sec),$(".qzone",sec),$(".qfoot",sec)].filter(Boolean).forEach(el=>qObs.observe(el));
+}
 let timerInt=null;
 function renderQuestion(){
   if(!CUR || !S || !S.cur){ return; }
@@ -584,7 +602,7 @@ function renderQuestion(){
       <div class="qfoot" id="qfoot"></div>
     </div></section>`;
   app.querySelectorAll("[data-zoom]").forEach(b=>b.onclick=()=>zoom(b.dataset.zoom));
-  if(big) fitQuestionImage();
+  if(big){ fitQuestionImage(); watchQuestionLayout(); }
   updateLive(); footer(); renderPicks(false);
   if(ph==="question"){ if(!isPlaying("question")) play("question",{restart:false}); startTimer(); }
 }
@@ -651,14 +669,14 @@ function renderResults(quiet){
   const list=(S?S.ranking:[]).map(e=>({...e,p:playerById(e.pid)})).filter(e=>e.p);
   const top=list.slice(0,3), order=[1,0,2].filter(i=>top[i]);
   const H={1:150,2:105,3:80};
-  const tied=e=>e.points>0 && list.filter(x=>x.points===e.points).length>1;
+  const tied=e=>CFG.tieSpeed && e.points>0 && list.filter(x=>x.points===e.points).length>1;
   const fmtS=ms=>(ms/1000).toFixed(1).replace(".",",")+" s";
   app.innerHTML=`<section class="screen res"><h2>Le classement</h2>
     ${list.length&&S.order.length?`<div class="podium">${order.map(i=>{ const e=top[i]; return `<div class="pod">${avatarHTML(e.p.avatar,e.p.name,e.rank===1?110:86,"margin:0 auto 6px;display:block;box-shadow:0 0 0 4px var(--gold)")}
-      <div class="tn" style="font-size:clamp(18px,2vw,26px)">${esc(e.p.name)}</div><div class="tp">${ptsTxt(e.points)}${tied(e)?` <small style="color:var(--ice-dim)">· ${fmtS(e.ms)}</small>`:""}</div>
+      <div class="tn" style="font-size:clamp(18px,2vw,26px)">${esc(e.p.name)}</div><div class="tp">${ptsTxt(e.points)}${tied(e)?` <small style="color:var(--ice-dim)">· ⏱ ${fmtS(e.ms)}</small>`:""}</div>
       <div class="st" style="height:${H[e.rank]||70}px">${e.rank}</div></div>`; }).join("")}</div>
-    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,30)}${esc(e.p.name)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
-    ${list.some(tied)?`<p style="text-align:center;color:var(--ice-dim);margin:2vh 0 0">À points égaux, le plus rapide passe devant (temps cumulé sur ses bonnes réponses).</p>`:""}`
+    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,30)}${esc(e.p.name)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">⏱ ${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
+    ${list.some(tied)?`<p style="text-align:center;color:var(--ice-dim);margin:2vh 0 0">⏱ À points égaux, le plus rapide passe devant (temps cumulé sur ses bonnes réponses, appel à un ami non compté).</p>`:""}`
     :`<p style="text-align:center;color:var(--ice-dim)">Aucune question n'a encore été jouée.</p>`}
     <div class="row center" style="margin-top:3vh"><button class="btn ghost" id="bH">Tableau des questions</button><button class="btn gold" id="bC">Remerciements</button></div></section>`;
   $("#bH").onclick=()=>go("hub"); $("#bC").onclick=()=>go("credits");
@@ -749,6 +767,7 @@ function cfgGeneral(b){
     <div class="grid3"><div class="f"><label for="g6">Points par défaut pour une bonne réponse sans joker</label><input class="inp" id="g6" type="number" min="1" max="1000" data-k="basePoints"><span class="hint">Utilisé pour les questions sans points personnalisés (onglet Questions).</span></div>
     <div class="f"><label for="g7">Points retirés par défaut par joker utilisé</label><input class="inp" id="g7" type="number" min="0" max="10" data-k="jokerCost"></div>
     <div class="f"><label for="g8">Temps pour répondre (secondes, 0 = sans limite)</label><input class="inp" id="g8" type="number" min="0" max="600" data-k="timer"><span class="hint">Sans limite, c'est vous qui closez les réponses.</span></div></div>
+    <label class="chk"><input type="checkbox" data-k="tieSpeed"> Départager les ex-aequo par la vitesse : à points égaux, le joueur le plus rapide passe devant (temps cumulé sur ses bonnes réponses, appel à un ami non compté)</label>
     <label class="chk"><input type="checkbox" data-k="autoClose"> Clore automatiquement les réponses dès que tous les joueurs connectés ont répondu</label>
     <h4 style="margin-top:14px">Jokers (sur le téléphone de chaque joueur)</h4>
     <label class="chk"><input type="checkbox" data-k="jokers.fifty"> Joker 50:50 : retire deux mauvaises réponses sur le téléphone du joueur</label>
@@ -798,9 +817,85 @@ function avatarPicker(person,done){
   };
   draw(); document.body.appendChild(pk); pk.addEventListener("click",e=>{ if(e.target===pk) pk.remove(); });
 }
+/* ================= Cropping question illustrations ================= */
+// slot -1 = the question's single photo, 0..3 = the photo of answer A..D. The original picture is kept, so a crop can always be redone.
+async function recrop(q,slot,forceRatio,step){
+  const single=slot<0, cur=single?q.img:q.aImgs[slot], orig=(single?q.imgOrig:q.aOrig[slot])||cur;
+  if(!IMG[orig]) return false;
+  const prev=single?q.imgCrop:q.aCrop[slot];
+  const title=single?"Recadrer la photo de la question":`Recadrer la photo de la réponse ${"ABCD"[slot]}`+(step!=null?` (${q.aImgs.slice(0,slot+1).filter(id=>IMG[id]).length}/${q.aImgs.filter(id=>IMG[id]).length})`:"");
+  const res=await cropEditor(IMG[orig],prev,forceRatio||(prev&&prev.ratio)||(single?"orig":"4:3"),title,!!forceRatio);
+  if(!res) return false;
+  let newId=orig;
+  if(!res.full){ newId=uid("img"); try{ await idbOp("readwrite",st=>st.put(res.blob,newId),"images"); }catch(e){} IMGBLOB[newId]=res.blob; IMG[newId]=URL.createObjectURL(res.blob); }
+  if(single){ q.imgOrig=res.full?null:orig; q.imgCrop=res.full?null:res.crop; q.img=newId; }
+  else { q.aOrig[slot]=res.full?null:orig; q.aCrop[slot]=res.full?null:res.crop; q.aImgs[slot]=newId; }
+  if(cur!==newId && cur!==orig) removeImage(cur);
+  save(KEY_CFG,CFG); toast(res.full?"Image entière conservée":"Photo recadrée");
+  return res.full?"keep":res.crop.ratio;
+}
+const RATIOS=[["orig","Format d'origine"],["free","Libre"],["16:9","16:9 (large)"],["4:3","4:3"],["1:1","Carré"],["3:4","3:4 (portrait)"]];
+function cropEditor(src,prev,ratioKey,title,force){
+  return new Promise(resolve=>{
+    const pk=document.createElement("div"); pk.className="pick"; pk.setAttribute("role","dialog"); pk.setAttribute("aria-label",title);
+    pk.innerHTML=`<div class="pickp cropp"><h3 style="margin:0 0 4px">${esc(title)}</h3>
+      <p style="margin:0 0 10px;font-size:13px;color:var(--cfg-dim)">Faites glisser le cadre pour le déplacer, ses coins pour le redimensionner, ou utilisez le curseur.</p>
+      <div class="row" style="gap:6px;margin-bottom:10px">${RATIOS.map(([k,l])=>`<button class="cb sm" data-ratio="${k}">${l}</button>`).join("")}</div>
+      <div class="cropstage" id="cs"><img id="ci" alt="" draggable="false"><div class="cropbox" id="cb">${["nw","ne","sw","se"].map(h=>`<span class="ch ${h}" data-h="${h}"></span>`).join("")}<i class="cg"></i></div></div>
+      <div class="row" style="gap:10px;margin-top:10px"><label class="flab" style="display:flex;align-items:center;gap:8px;flex:1">Taille du cadre <input type="range" id="cz" min="15" max="100" step="1" style="flex:1"></label><span id="cinfo" style="font-size:13px;color:var(--cfg-dim)"></span></div>
+      <div class="row" style="justify-content:space-between;margin-top:14px"><button class="cb" id="cFull">Garder l'image entière</button>
+        <span class="row"><button class="cb" id="cNo">Annuler</button><button class="cb pri" id="cOk">Appliquer le recadrage</button></span></div></div>`;
+    document.body.appendChild(pk);
+    const img=$("#ci",pk), box=$("#cb",pk), stage=$("#cs",pk);
+    let W=0,H=0,R=null,ratio=ratioKey, rc={x:0,y:0,w:1,h:1};
+    const done=v=>{ pk.remove(); resolve(v); };
+    const ratioVal=k=>k==="orig"?W/H:k==="free"?null:(([a,b])=>a/b)(k.split(":").map(Number));
+    const clamp=()=>{ rc.w=Math.min(rc.w,W); rc.h=Math.min(rc.h,H); rc.x=Math.max(0,Math.min(W-rc.w,rc.x)); rc.y=Math.max(0,Math.min(H-rc.h,rc.y)); };
+    const maxFor=r=>r? (W/H>r?{w:H*r,h:H}:{w:W,h:W/r}) : {w:W,h:H};
+    const draw=()=>{ const s=img.clientWidth/W; Object.assign(box.style,{left:rc.x*s+"px",top:rc.y*s+"px",width:rc.w*s+"px",height:rc.h*s+"px"});
+      $("#cinfo",pk).textContent=`${Math.round(rc.w)} × ${Math.round(rc.h)} px`;
+      const m=maxFor(R); $("#cz",pk).value=Math.round(Math.min(100,Math.max(rc.w/m.w,rc.h/m.h)*100));
+      pk.querySelectorAll("[data-ratio]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.ratio===ratio))); };
+    const setRatio=(k,keep)=>{ ratio=k; R=ratioVal(k); if(!R){ draw(); return; }
+      const cx=rc.x+rc.w/2, cy=rc.y+rc.h/2, m=maxFor(R), sc=keep?Math.min(1,Math.max(rc.w/m.w,rc.h/m.h)):1;
+      rc.w=m.w*sc; rc.h=m.h*sc; rc.x=cx-rc.w/2; rc.y=cy-rc.h/2; clamp(); draw(); };
+    img.onload=()=>{ W=img.naturalWidth; H=img.naturalHeight;
+      if(prev && prev.w){ rc={x:prev.x*W,y:prev.y*H,w:prev.w*W,h:prev.h*H}; ratio=prev.ratio||ratioKey; R=ratioVal(ratio); clamp(); if(force&&ratio!==ratioKey) setRatio(ratioKey,true); else draw(); }
+      else { rc={x:0,y:0,w:W,h:H}; setRatio(ratioKey,false); } };
+    img.src=src;
+    pk.querySelectorAll("[data-ratio]").forEach(b=>b.onclick=()=>setRatio(b.dataset.ratio,true));
+    $("#cz",pk).oninput=e=>{ const m=maxFor(R), f=+e.target.value/100, cx=rc.x+rc.w/2, cy=rc.y+rc.h/2;
+      if(R){ rc.w=m.w*f; rc.h=m.h*f; } else { const k=f/Math.max(rc.w/W,rc.h/H); rc.w=Math.min(W,rc.w*k); rc.h=Math.min(H,rc.h*k); }
+      rc.x=cx-rc.w/2; rc.y=cy-rc.h/2; clamp(); draw(); };
+    // dragging: move the frame, or resize it from a corner (keeping the chosen format)
+    let drag=null;
+    stage.addEventListener("pointerdown",e=>{ const s=img.clientWidth/W, h=e.target.dataset&&e.target.dataset.h;
+      if(!h && !box.contains(e.target)) return;
+      e.preventDefault(); stage.setPointerCapture(e.pointerId); drag={h,sx:e.clientX,sy:e.clientY,r0:{...rc},s}; });
+    stage.addEventListener("pointermove",e=>{ if(!drag) return; const dx=(e.clientX-drag.sx)/drag.s, dy=(e.clientY-drag.sy)/drag.s, r0=drag.r0;
+      if(!drag.h){ rc.x=r0.x+dx; rc.y=r0.y+dy; clamp(); return draw(); }
+      const left=drag.h.includes("w"), top=drag.h.includes("n"), MIN=40;
+      let w=Math.max(MIN,r0.w+(left?-dx:dx)), h=Math.max(MIN,r0.h+(top?-dy:dy));
+      if(R){ if(Math.abs(dx)>Math.abs(dy)) h=w/R; else w=h*R; }
+      const ax=left?r0.x+r0.w:r0.x, ay=top?r0.y+r0.h:r0.y;              // the opposite corner stays put
+      const maxW=left?ax:W-ax, maxH=top?ay:H-ay;
+      if(w>maxW){ w=maxW; if(R) h=w/R; } if(h>maxH){ h=maxH; if(R) w=h*R; }
+      rc={x:left?ax-w:ax,y:top?ay-h:ay,w,h}; draw(); });
+    const end=()=>{ drag=null; }; stage.addEventListener("pointerup",end); stage.addEventListener("pointercancel",end);
+    addEventListener("resize",draw);
+    $("#cNo",pk).onclick=()=>done(null);
+    $("#cFull",pk).onclick=()=>done({full:true,crop:{ratio:"orig"}});
+    $("#cOk",pk).onclick=()=>{
+      if(rc.w>=W-1 && rc.h>=H-1) return done({full:true,crop:{ratio}});
+      const s=Math.min(1,1600/Math.max(rc.w,rc.h)), c=document.createElement("canvas"); c.width=Math.round(rc.w*s); c.height=Math.round(rc.h*s);
+      const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(img,rc.x,rc.y,rc.w,rc.h,0,0,c.width,c.height);
+      c.toBlob(blob=>done({blob,crop:{x:rc.x/W,y:rc.y/H,w:rc.w/W,h:rc.h/H,ratio}}),"image/jpeg",.88); };
+    pk.addEventListener("keydown",e=>{ if(e.key==="Escape"){ e.stopPropagation(); done(null); } });
+  });
+}
 function thumbHTML(id,attr,label,extra=""){ const src=IMG[id];
   return `<span class="row" style="gap:4px;flex-wrap:nowrap"><label class="thumb ${src?"has":""} ${extra}" style="${src?`background-image:url('${esc(src)}')`:""}" title="${esc(label)}">${src?"":"📷"}<input type="file" accept="image/*" ${attr} aria-label="${esc(label)}"></label>
-    ${src?`<button class="cb sm dan" ${attr.replace("data-","data-rm-")} aria-label="Retirer : ${esc(label)}">✕</button>`:""}</span>`; }
+    ${src?`<button class="cb sm" ${attr.replace("data-","data-crop-")} title="Recadrer" aria-label="Recadrer : ${esc(label)}">✂ Recadrer</button><button class="cb sm dan" ${attr.replace("data-","data-rm-")} aria-label="Retirer : ${esc(label)}">✕</button>`:""}</span>`; }
 function ptsHint(q){ const nj=(CFG.jokers.fifty?1:0)+(CFG.jokers.public?1:0)+(CFG.jokers.phone?1:0);
   return `Bonne réponse : ${[0,1,2,3].slice(0,nj+1).map(j=>`${pointsFor(j,q)}${j?` avec ${j} joker${j>1?"s":""}`:" sans joker"}`).join(", ")}. Champs vides = valeurs par défaut de l'onglet Général.`; }
 const builtinFor = () => (typeof DEFAULT_MEDIA_FOR!=="undefined"?DEFAULT_MEDIA_FOR:{});
@@ -823,7 +918,7 @@ function cfgQuestions(b){
     <div class="qmeta"><label class="flab" for="qm${i}">Illustration</label><select id="qm${i}" data-qmode>
       <option value="none" ${q.imgMode==="none"?"selected":""}>Aucune</option><option value="single" ${q.imgMode==="single"?"selected":""}>Une photo pour toute la question</option><option value="answers" ${q.imgMode==="answers"?"selected":""}>Une photo par proposition (2 × 2)</option></select>
       ${q.imgMode==="single"?thumbHTML(q.img,`data-qi`,"Photo de la question","bigthumb"):""}
-      ${q.imgMode==="answers"?`<span style="font-size:13px;color:var(--cfg-dim)">Cliquez sur les vignettes à droite de chaque proposition.</span>`:""}</div>
+      ${q.imgMode==="answers"?`<span style="font-size:13px;color:var(--cfg-dim)">Cliquez sur les vignettes à droite de chaque proposition. Astuce : recadrez les 4 photos au même format pour une grille harmonieuse.</span>${q.aImgs.filter(id=>IMG[id]).length>1?`<button class="cb sm" data-cropall>✂ Recadrer les 4 au même format…</button>`:""}`:""}</div>
     <div class="qmeta"><button class="cb sm" data-mv="-1">Monter</button><button class="cb sm" data-mv="1">Descendre</button><button class="cb sm" data-sh>Mélanger les réponses</button><button class="cb sm dan" data-del>Supprimer</button></div></div></div>`).join("")||`<div class="empty">Aucune question. Ajoutez la première.</div>`}
   <div class="row"><button class="cb pri" id="qAdd">+ Ajouter une question</button></div>`;
   b.querySelectorAll("[data-q]").forEach(card=>{
@@ -838,10 +933,13 @@ function cfgQuestions(b){
     card.querySelector("[data-qdiff]").onchange=e=>{ q.difficulty=+e.target.value; saveCfg(); };
     card.querySelector("[data-qmode]").onchange=e=>{ q.imgMode=e.target.value; saveCfg(); cfgQuestions(b); };
     const up=async(file,setter)=>{ if(!file) return; try{ const id=await addImage(file); setter(id); saveCfg(); cfgQuestions(b); }catch(_){ toast("Image illisible : choisissez un fichier JPG, PNG ou WebP."); } };
-    card.querySelectorAll("input[data-ai]").forEach(inp=>inp.onchange=e=>{ const j=+inp.dataset.ai, old=q.aImgs[j]; up(e.target.files[0],id=>{ q.aImgs[j]=id; removeImage(old); }); });
-    card.querySelectorAll("[data-rm-ai]").forEach(btn=>btn.onclick=()=>{ const j=+btn.dataset.rmAi, old=q.aImgs[j]; q.aImgs[j]=null; saveCfg(); removeImage(old); cfgQuestions(b); });
-    const qi=card.querySelector("input[data-qi]"); qi&&(qi.onchange=e=>{ const old=q.img; up(e.target.files[0],id=>{ q.img=id; removeImage(old); }); });
-    const rq=card.querySelector("[data-rm-qi]"); rq&&(rq.onclick=()=>{ const old=q.img; q.img=null; saveCfg(); removeImage(old); cfgQuestions(b); });
+    card.querySelectorAll("input[data-ai]").forEach(inp=>inp.onchange=e=>{ const j=+inp.dataset.ai, olds=[q.aImgs[j],q.aOrig[j]]; up(e.target.files[0],id=>{ q.aImgs[j]=id; q.aOrig[j]=null; q.aCrop[j]=null; olds.forEach(removeImage); }); });
+    card.querySelectorAll("[data-crop-ai]").forEach(btn=>btn.onclick=()=>recrop(q,+btn.dataset.cropAi,null).then(ok=>ok&&cfgQuestions(b)));
+    const ca=card.querySelector("[data-cropall]"); ca&&(ca.onclick=async()=>{ let ratio=null; for(let j=0;j<4;j++){ if(!IMG[q.aImgs[j]]) continue; const r=await recrop(q,j,ratio,j); if(r===false) break; if(r&&r!=="keep") ratio=r; } cfgQuestions(b); });
+    card.querySelectorAll("[data-rm-ai]").forEach(btn=>btn.onclick=()=>{ const j=+btn.dataset.rmAi, olds=[q.aImgs[j],q.aOrig[j]]; q.aImgs[j]=null; q.aOrig[j]=null; q.aCrop[j]=null; saveCfg(); olds.forEach(removeImage); cfgQuestions(b); });
+    const qi=card.querySelector("input[data-qi]"); qi&&(qi.onchange=e=>{ const olds=[q.img,q.imgOrig]; up(e.target.files[0],id=>{ q.img=id; q.imgOrig=null; q.imgCrop=null; olds.forEach(removeImage); }); });
+    const rq=card.querySelector("[data-rm-qi]"); rq&&(rq.onclick=()=>{ const olds=[q.img,q.imgOrig]; q.img=null; q.imgOrig=null; q.imgCrop=null; saveCfg(); olds.forEach(removeImage); cfgQuestions(b); });
+    const cq=card.querySelector("[data-crop-qi]"); cq&&(cq.onclick=()=>recrop(q,-1,null).then(ok=>ok&&cfgQuestions(b)));
     card.querySelectorAll("[data-mv]").forEach(btn=>btn.onclick=()=>{ const a=i(), z=a+ +btn.dataset.mv; if(z<0||z>=CFG.questions.length) return; [CFG.questions[a],CFG.questions[z]]=[CFG.questions[z],CFG.questions[a]]; saveCfg(); cfgQuestions(b); });
     card.querySelector("[data-sh]").onclick=()=>{ const ord=shuffle([0,1,2,3]); q.answers=ord.map(k=>q.answers[k]); q.aImgs=ord.map(k=>q.aImgs[k]); q.correct=ord.indexOf(q.correct); saveCfg(); cfgQuestions(b); };
     card.querySelector("[data-del]").onclick=async()=>{ if(await ask("Supprimer cette question ?",{ok:"Supprimer"})){ CFG.questions.splice(i(),1); saveCfg(); cfgQuestions(b);} };
@@ -931,7 +1029,8 @@ async function importXlsx(file){
     if(correct<0||!["a","b","c","d"].every(x=>r[C[x]])) bad.push(k+2);
     return {id:old?old.id:(r[C.id]||uid("q")),label:r[C.lab]||"",text:r[C.txt],answers:["a","b","c","d"].map(x=>r[C[x]]||""),correct:Math.max(0,correct),
       difficulty:Math.max(1,Math.min(4,num(r[C.diff])||2)),points:num(r[C.pts]),jokerCost:num(r[C.jc]),note:r[C.note]||"",
-      imgMode:old?old.imgMode:"none",img:old?old.img:null,aImgs:old?old.aImgs:[null,null,null,null]};
+      imgMode:old?old.imgMode:"none",img:old?old.img:null,aImgs:old?old.aImgs:[null,null,null,null],
+      imgOrig:old?old.imgOrig:null,imgCrop:old?old.imgCrop:null,aOrig:old?old.aOrig:[null,null,null,null],aCrop:old?old.aCrop:[null,null,null,null]};
   });
   if(!qs.length){ notice("Aucune question sélectionnée : mettez « Oui » dans la colonne Sélection des questions à importer."); return; }
   if(!await ask(`Remplacer les ${CFG.questions.length} questions actuelles par les ${qs.length} questions sélectionnées dans « ${file.name} » ?${bad.length?` Attention : ligne${bad.length>1?"s":""} ${bad.join(", ")} incomplète${bad.length>1?"s":""} (réponse ou bonne réponse manquante).`:""}`,{ok:"Importer"})) return;

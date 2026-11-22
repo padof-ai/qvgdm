@@ -129,7 +129,7 @@ function render(force) {
     const r = q.result;
     app.innerHTML = `<div class="brand">Question ${q.n || ""}</div>
       <div class="result ${r ? (r.ok ? "ok" : "ko") : "none"}"><div class="t">${r ? (r.ok ? "Bonne réponse !" : "Mauvaise réponse…") : "Pas de réponse"}</div>
-      <div class="p">${r ? (r.ok ? "+ " + ptsTxt(r.points) : "0 point") : "0 point"}</div></div>
+      <div class="p">${r ? (r.ok ? "+ " + ptsTxt(r.points) : "0 point") : "0 point"}</div>${r && r.ms != null && V.settings.tieSpeed ? `<div class="dim" style="margin-top:4px;font-size:14px">⏱ Réponse en ${secTxt(r.ms)}</div>` : ""}</div>
       <div class="card"><span class="lbl">La bonne réponse</span><div class="ans good" style="min-height:52px"><span class="L">${L[q.correct]}</span><span>${esc(q.answers[q.correct])}</span></div>
       ${r && !r.ok ? `<p class="dim" style="margin:10px 0 0">Vous aviez répondu ${L[q.mine]} : « ${esc(q.answers[q.mine])} »</p>` : ""}</div>
       ${q.note ? `<div class="card"><span class="lbl">👉 Le saviez-vous ?</span><p style="margin:0;line-height:1.45;color:#fff">${esc(q.note)}</p></div>` : ""}${meHTML()}`;
@@ -141,6 +141,7 @@ function render(force) {
     app.innerHTML = `<div class="brand">Le classement</div><div class="card center">${avatarHTML(m.avatar, m.name, 90)}
       <p class="big" style="margin:10px 0 4px">${esc(m.name)}</p><div class="rank">${m.rank}${m.rank === 1 ? "er" : "e"}</div>
       <p class="dim" style="margin:4px 0 0">sur ${m.of} joueur${m.of > 1 ? "s" : ""}, avec ${ptsTxt(m.points)}</p>
+      ${V.settings.tieSpeed && m.tied && m.points > 0 ? `<p class="dim" style="margin:6px 0 0;font-size:14px">⏱ À égalité de points avec ${m.tied} joueur${m.tied > 1 ? "s" : ""} : départagé${m.tied > 1 ? "s" : ""} à la vitesse (${secTxt(m.ms)} cumulées sur vos bonnes réponses)</p>` : ""}
       <p style="margin:12px 0 0;font-size:18px">${m.rank === 1 ? "🏆 Bravo, vous êtes en tête !" : m.rank <= 3 ? "👏 Sur le podium !" : "Merci pour votre participation !"}</p></div>`;
     return;
   }

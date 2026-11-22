@@ -37,7 +37,7 @@ function freshState() {
   return {
     gameId: rid(6),
     players: new Map(),            // pid -> {pid, token, name, avatar, joinedAt, jokersUsed:{fifty,public,phone}}
-    settings: { jokers: { fifty: true, public: true, phone: false }, jokerScope: "game", phoneSec: 30, autoClose: true },
+    settings: { jokers: { fifty: true, public: true, phone: false }, jokerScope: "game", phoneSec: 30, autoClose: true, tieSpeed: true },
     phase: "lobby",                // lobby | intro | question | closed | revealed | results | credits
     cur: null,                     // current question (with the correct answer, never sent to players before reveal)
     results: {},                   // qid -> {label, correct, at, rows: {pid -> {choice, ok, points, ms, jokers}}}
@@ -57,9 +57,11 @@ function scores() {
     }
   }
   // ranking: most points first; equal points are split by the total time taken on correct answers (fastest first)
-  const list = Object.entries(tot).map(([pid, t]) => ({ pid, ...t })).sort((a, b) => b.points - a.points || a.ms - b.ms);
+  const sp = G.settings.tieSpeed !== false, key = e => sp ? e.points + "|" + e.ms : String(e.points);
+  const list = Object.entries(tot).map(([pid, t]) => ({ pid, ...t })).sort((a, b) => b.points - a.points || (sp ? a.ms - b.ms : 0));
   let rank = 0, last = null;
-  list.forEach((e, i) => { const k = e.points + "|" + e.ms; if (k !== last) { rank = i + 1; last = k; } e.rank = rank; });
+  list.forEach((e, i) => { const k = key(e); if (k !== last) { rank = i + 1; last = k; } e.rank = rank; });
+  for (const e of list) e.tied = list.filter(x => x.points === e.points).length - 1;   // other players with the same points
   return { list, byPid: Object.fromEntries(list.map(e => [e.pid, e])) };
 }
 
@@ -106,9 +108,9 @@ function adminView() {
 }
 function playerView(pid, sc) {
   const p = G.players.get(pid); if (!p) return { gone: true, gameId: G.gameId };
-  sc = sc || scores(); const me = sc.byPid[pid] || { points: 0, rank: sc.list.length, good: 0 };
-  const v = { gameId: G.gameId, me: { ...publicPlayer(p), points: me.points, rank: me.rank, good: me.good, of: sc.list.length },
-    phase: G.phase, screen: G.show.screen, settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope } };
+  sc = sc || scores(); const me = sc.byPid[pid] || { points: 0, rank: sc.list.length, good: 0, ms: 0, tied: 0 };
+  const v = { gameId: G.gameId, me: { ...publicPlayer(p), points: me.points, rank: me.rank, good: me.good, of: sc.list.length, ms: me.ms, tied: me.tied },
+    phase: G.phase, screen: G.show.screen, settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false } };
   if (G.cur && ["intro", "question", "closed", "revealed"].includes(G.phase)) {
     const a = G.cur.answers_by[pid] || G.cur.jokerOnly[pid] || null;
     const usedHere = (a && a.jokers) || {};
@@ -121,7 +123,7 @@ function playerView(pid, sc) {
       used: usedHere, avail, phoneUntil: (a && a.phoneUntil) || null };
     if (G.phase === "revealed") {
       const r = G.results[G.cur.qid]; const row = r && r.rows[pid];
-      v.q.correct = G.cur.correct; v.q.note = G.cur.note || ""; v.q.result = row ? { ok: row.ok, points: row.points } : null;
+      v.q.correct = G.cur.correct; v.q.note = G.cur.note || ""; v.q.result = row ? { ok: row.ok, points: row.points, ms: row.ms } : null;
     }
   }
   return v;
@@ -152,6 +154,12 @@ function maybeAutoClose() {
   const ids = [...G.players.keys()].filter(online);
   if (ids.length && ids.every(id => G.cur.answers_by[id] && G.cur.answers_by[id].choice != null)) closeQuestion();
 }
+// time taken to answer, from the opening of the question to the tap; the phone call (joker) is not counted
+function answerMs(a) {
+  let ms = a.at - G.cur.openedAt;
+  if (a.phoneAt) ms -= Math.max(0, Math.min(a.at, a.phoneUntil || a.at) - a.phoneAt);
+  return Math.max(0, ms);
+}
 function reveal() {
   if (!G.cur || !["question", "closed"].includes(G.phase)) return;
   clearTimeout(G.cur.timer);
@@ -160,7 +168,7 @@ function reveal() {
     if (a.choice == null) continue;
     const nj = ["fifty", "public", "phone"].filter(k => a.jokers && a.jokers[k]).length;
     const ok = a.choice === G.cur.correct;
-    rows[pid] = { choice: a.choice, ok, points: ok ? Math.max(0, G.cur.points - nj * G.cur.jokerCost) : 0, ms: a.at - G.cur.openedAt, jokers: a.jokers || {} };
+    rows[pid] = { choice: a.choice, ok, points: ok ? Math.max(0, G.cur.points - nj * G.cur.jokerCost) : 0, ms: answerMs(a), jokers: a.jokers || {} };
   }
   G.results[G.cur.qid] = { label: G.cur.label, correct: G.cur.correct, at: now(), rows, answers: G.cur.answers, text: G.cur.text };
   if (!G.order.includes(G.cur.qid)) G.order.push(G.cur.qid);
@@ -243,6 +251,7 @@ function applySettings(s) {
   G.settings.jokerScope = s.jokerScope === "question" ? "question" : "game";
   G.settings.phoneSec = Math.max(5, Math.min(180, +s.phoneSec || 30));
   G.settings.autoClose = s.autoClose !== false;
+  G.settings.tieSpeed = s.tieSpeed !== false;
 }
 
 function playerAuth(b) {
@@ -288,7 +297,7 @@ function playerAction(path, b) {
     a.jokers[k] = true; p.jokersUsed[k] = true;
     if (k === "fifty") a.gone = shuffle([0, 1, 2, 3].filter(i => i !== G.cur.correct && !(a.gone || []).includes(i))).slice(0, 2);
     if (k === "public") a.vote = publicVote(G.cur.correct, G.cur.difficulty, a.gone || []);
-    if (k === "phone") a.phoneUntil = now() + G.settings.phoneSec * 1000;
+    if (k === "phone") { a.phoneAt = now(); a.phoneUntil = a.phoneAt + G.settings.phoneSec * 1000; }
     pushAll(); return { ok: true };
   }
   return { ok: false };

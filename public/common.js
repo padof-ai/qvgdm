@@ -56,6 +56,7 @@ const ICON_PHONE=`<svg viewBox="0 0 48 32" aria-hidden="true"><path fill="#fff" 
 const ICON_PUBLIC=`<svg viewBox="0 0 48 32" fill="#fff" aria-hidden="true"><circle cx="24" cy="9" r="6"/><path d="M13 30q0-11 11-11t11 11z"/><circle cx="10" cy="12" r="4.5" opacity=".85"/><path d="M1 30q0-9 9-9 4 0 6 2-4 3-5 7z" opacity=".85"/><circle cx="38" cy="12" r="4.5" opacity=".85"/><path d="M47 30q0-9-9-9-4 0-6 2 4 3 5 7z" opacity=".85"/></svg>`;
 const ICON_FIFTY = "50:50";
 const ptsTxt = n => `${n} point${n>1?"s":""}`;
+const secTxt = ms => (Math.max(0,ms)/1000).toFixed(1).replace(".",",")+" s";
 async function api(path, body){
   const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
   let j={}; try{ j=await r.json(); }catch(e){}
