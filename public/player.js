@@ -127,7 +127,7 @@ function render(force) {
   lastSig = sig;
   const q = V.q;
   if (V.phase === "question" && q) return renderQuestion();
-  stopTick(); stopCall(false); if (mp3El) { mp3El.pause(); mp3El = null; }
+  stopTick(); stopCall(false); if (mp3El) { mp3El.stop(); mp3El = null; }
   if (V.phase === "intro" && q) {
     app.innerHTML = `<div class="brand">Question ${q.n || ""}</div><div class="card center"><p class="big">${esc(q.label || "Nouvelle question")}</p>
       <p style="margin:10px 0 0"><span class="chip">${ptsTxt(q.points)} en jeu</span></p><p class="dim" style="margin-bottom:0">Préparez-vous : la question arrive !</p></div>${meHTML()}${rxHTML()}`; bindRx();
@@ -151,7 +151,8 @@ function render(force) {
       ${rxHTML()}${q.note ? `<div class="card"><span class="lbl">👉 Le saviez-vous ?</span><p style="margin:0;line-height:1.45;color:#fff">${esc(q.note)}</p></div>` : ""}${meHTML(true)}`;
     bindRx();
     if (r && r.ok) sparkles($(".hero"));
-    if (lastBuzz !== q.qid) { lastBuzz = q.qid; try { navigator.vibrate && navigator.vibrate(r && r.ok ? [40, 60, 40] : 120); } catch (e) { } }
+    if (lastBuzz !== q.qid) { lastBuzz = q.qid; try { navigator.vibrate && navigator.vibrate(r && r.ok ? [40, 60, 40] : 120); } catch (e) { }
+      if (r && !r.ok && sndOn && soundsWanted() && AC) { if (!playFile("wrong")) JSND.wrong(); } }
     return;
   }
   if (V.phase === "results" && V.hold) {
@@ -235,6 +236,7 @@ async function answer(i, btn) {
   if (V.q.mine != null) return;
   app.querySelectorAll("[data-a]").forEach(b => b.disabled = true); btn.classList.add("sel");
   stopCall(true);                                   // answering ends the phone call
+  audioUnlock();                                    // the tap allows the "wrong answer" music at the reveal
   try { navigator.vibrate && navigator.vibrate(25); } catch (e) { }
   const r = await api("/api/answer", { pid: ME.pid, token: ME.token, qid: V.q.qid, choice: i }).catch(() => ({ ok: false, error: "Réseau indisponible : réessayez." }));
   if (!r.ok) { toast(r.error || "Réponse refusée."); render(true); }
@@ -252,11 +254,18 @@ async function joker(k, btn) {
 // Synthesized like on the projected screen; an MP3 put in public/sounds (joker-5050.mp3, joker-public.mp3, joker-phone.mp3) replaces them.
 const VOTE_MS = 5000;
 let AC = null, sndOn = (() => { try { return localStorage.getItem("qvgda_snd") !== "0"; } catch (e) { return true; } })();
-const soundsWanted = () => V && V.settings && V.settings.jokerSounds !== false && Object.values(V.settings.jokers || {}).some(Boolean);
+const soundsWanted = () => V && V.settings && V.settings.jokerSounds !== false;   // sounds on the phones (jokers, wrong answer)
 function audioUnlock(any) {
   if (!sndOn || (!any && !soundsWanted())) return;
   try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { }   // iPhone: play even with the silent switch
   try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) { }
+  preloadFiles();
+}
+// the site's MP3s are decoded once, then played through the audio context (works later without a new tap, also on iPhone)
+const BUF = {};
+function preloadFiles() {
+  if (!AC || !V || !V.settings) return;
+  for (const n of V.settings.jokerFiles || []) if (!BUF[n]) BUF[n] = fetch(`/sounds/${n}.mp3`).then(r => r.arrayBuffer()).then(b => new Promise((ok, ko) => AC.decodeAudioData(b, ok, ko))).catch(() => null);
 }
 function tone(f, t0, dur, type = "sine", vol = .2, glide) {
   const c = AC; if (!c) return; const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + t0; o.type = type; o.frequency.setValueAtTime(f, t);
@@ -280,19 +289,30 @@ const JSND = {
     let t = 0; for (const d of "06" + String(Math.floor(Math.random() * 1e8)).padStart(8, "0")) { const [a, b] = D[d]; tone(a, t, .1, "sine", .1); tone(b, t, .1, "sine", .1); t += .16; }
     t += .5; for (let r = 0; r < 2; r++) { tone(440, t, 1.2, "sine", .14); t += r ? 1.2 : 2.4; } return t + .2; },
   hold() { [523, 659, 784, 659, 587, 698, 880, 698].forEach((f, i) => tone(f, i * .3, .26, "triangle", .08)); tone(131, 0, 1.2, "sine", .08); tone(147, 1.2, 1.2, "sine", .08); return 2.4; },
-  hangup() { noise(0, .06, .25, 900); for (let i = 0; i < 3; i++) tone(440, .35 + i * .5, .25, "sine", .13); }
+  hangup() { noise(0, .06, .25, 900); for (let i = 0; i < 3; i++) tone(440, .35 + i * .5, .25, "sine", .13); },
+  wrong() { [[392, 370, 0, .42], [370, 349, .48, .42], [349, 330, .96, .42], [330, 247, 1.44, 1.3]].forEach(([a, b, t, d]) => { tone(a, t, d, "sawtooth", .08, b); tone(a / 2, t, d, "triangle", .1, b / 2); }); }
 };
-const MP3 = { fifty: "joker-5050", public: "joker-public", phone: "joker-phone" };
+const MP3 = { fifty: "joker-5050", public: "joker-public", phone: "joker-phone", wrong: "mauvaise-reponse" };
 let mp3El = null, call = null;
+// returns a handle {stop(), dur: Promise<seconds>} or null when the site has no file for it
 function playFile(k, loop) {
-  const have = (V.settings.jokerFiles || []).includes(MP3[k]); if (!have) return null;
-  const a = new Audio(`/sounds/${MP3[k]}.mp3`); a.loop = !!loop; a.play().catch(() => { }); return a;
+  const n = MP3[k]; if (!(V.settings.jokerFiles || []).includes(n)) return null;
+  if (AC) {
+    preloadFiles(); let src = null, stopped = false;
+    const dur = BUF[n].then(buf => { if (!buf || stopped) return 0; src = AC.createBufferSource(); src.buffer = buf; src.loop = !!loop; src.connect(AC.destination); src.start(); return buf.duration; });
+    return { stop() { stopped = true; try { src && src.stop(); } catch (e) { } }, dur };
+  }
+  const a = new Audio(`/sounds/${n}.mp3`); a.loop = !!loop; a.play().catch(() => { });
+  return { stop() { a.pause(); }, dur: new Promise(r => a.addEventListener("loadedmetadata", () => r(a.duration || 0), { once: true })) };
 }
 function jokerSound(k, qid) {
   if (!sndOn || !soundsWanted()) return;
   audioUnlock();
   if (k === "fifty") { if (!playFile("fifty")) JSND.fifty(); }
-  if (k === "public") { mp3El = playFile("public"); if (!mp3El) JSND.public(); }
+  if (k === "public") { mp3El = playFile("public");
+    if (!mp3El) JSND.public();
+    else mp3El.dur.then(d => { if (d && V.q && V.q.qid === qid) { voteAt[qid] = Date.now() + Math.min(13, Math.max(3, d - .9)) * 1000;   /* about the final hit of the music */ render(true); } });   // the result shows at the end of the music
+  }
   if (k === "phone") {
     stopCall(false);
     const c = call = { qid, timers: [], audio: null };
@@ -306,7 +326,7 @@ function jokerSound(k, qid) {
 }
 function stopCall(hangup) {
   if (!call) return; const c = call; call = null;
-  c.timers.forEach(clearTimeout); if (c.audio) { c.audio.pause(); c.audio = null; }
+  c.timers.forEach(clearTimeout); if (c.audio) { c.audio.stop(); c.audio = null; }
   if (hangup && sndOn) JSND.hangup();
 }
 

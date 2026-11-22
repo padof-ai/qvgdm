@@ -397,7 +397,9 @@ function playerAction(path, b) {
 
 // Avatars: generated character, emoji or initials; photos only when chosen by the host
 // optional MP3s for the jokers on the phones (otherwise the phones synthesize the sounds)
-const JOKER_FILES = ["joker-5050", "joker-public", "joker-phone"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
+// optional music files for the projected screen (otherwise a synthesized sound)
+const SITE_SOUNDS = ["revelation", "mauvaise-reponse"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
+const JOKER_FILES = ["joker-5050", "joker-public", "joker-phone", "mauvaise-reponse"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
 const AV_MAX = 180000;   // characters of an avatar picture (data URL); the admin and the phones resize pictures below this
 const REACTIONS = ["👏", "😂", "😮", "❤️", "🔥", "🎉"];
 let clapT = null;
@@ -457,7 +459,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && (p === "/" || p === "/jouer")) return serveFile(res, path.join(PUBLIC, "player.html"));
     if (req.method === "GET" && p === "/admin") return serveFile(res, path.join(PUBLIC, "admin.html"));
-    if (req.method === "GET" && p === "/api/game") return json(res, 200, { gameId: G.gameId });
+    if (req.method === "GET" && p === "/api/game") return json(res, 200, { gameId: G.gameId, sounds: SITE_SOUNDS });
     if (req.method === "GET" && p === "/healthz") return json(res, 200, { ok: true, players: G.players.size });
     if (req.method === "GET" && p.startsWith("/api/av/")) {
       const pl = G.players.get(p.slice(8)), a = pl && pl.avatar;

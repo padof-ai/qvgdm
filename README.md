@@ -20,6 +20,19 @@ Le serveur n'a **aucune dépendance** : rien à installer, `node server.js` suff
 Vérifiez que `server.js` et `package.json` apparaissent **à la racine** du dépôt (et pas dans un sous-dossier `qvgda-en-ligne`).
 
 > **Musiques** : les fichiers du dossier `public/sounds` viennent de votre PowerPoint et semblent être des musiques de l'émission. Gardez le dépôt **privé** : Render fonctionne très bien avec un dépôt privé. Vous pouvez aussi les remplacer par vos propres fichiers MP3 (mêmes noms de fichiers).
+>
+> | Fichier dans `public/sounds` | Quand il joue |
+> |---|---|
+> | `generique.mp3` | Accueil et remerciements |
+> | `transition.mp3` | Arrivée sur le tableau des questions |
+> | `question.mp3` | Pendant la question (en boucle) |
+> | `suspense.mp3` | Après la clôture des réponses (en boucle) |
+> | `revelation.mp3` | Révélation de la bonne réponse (facultatif : sinon son synthétisé) |
+> | `applaudissements.mp3` | Classement, remerciements, fin de l'applaudimètre |
+> | `mauvaise-reponse.mp3` | Facultatif (sinon « wah wah wah » synthétisé) : sur le PC quand personne n'a trouvé la bonne réponse, et sur le téléphone de chaque joueur qui s'est trompé |
+> | `joker-5050.mp3`, `joker-public.mp3`, `joker-phone.mp3` | Jokers, sur le téléphone du joueur (facultatifs) |
+>
+> Noms en minuscules, sans accent, extension `.mp3`. Les fichiers déposés sur GitHub servent sur tous les ordinateurs ; une musique importée dans Paramètres › Sons ne vaut que pour le navigateur de ce PC (et y reste prioritaire).
 
 ## 2. Mettre le jeu en ligne sur Render (10 minutes)
 

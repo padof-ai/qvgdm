@@ -81,6 +81,8 @@ const SFX={
   lock(){ tone(220,0,.5,"sawtooth",.08); tone(330,0,.5,"sine",.1); },
   suspense(d=2.6){ for(let i=0;i<d*4;i++){ tone(110+(i%2)*6,i*.25,.26,"sawtooth",.05); } tone(55,0,d,"sine",.18,110); },
   good(){ [523,659,784,1047].forEach((f,i)=>tone(f,i*.11,.5,"triangle",.18)); tone(1568,.45,.9,"sine",.1); },
+  // "wah wah wah waaah" (sad trombone)
+  wrong(){ [[392,370,0,.42],[370,349,.48,.42],[349,330,.96,.42],[330,247,1.44,1.3]].forEach(([a,b,t,d])=>{ tone(a,t,d,"sawtooth",.09,b); tone(a/2,t,d,"triangle",.1,b/2); }); return 2.8; },
   bad(){ tone(196,0,.45,"square",.1,150); tone(147,.4,.8,"square",.1,100); },
   win(){ tone(784,0,.12,"triangle",.16); tone(1047,.12,.4,"triangle",.18); },
   fifty(){ tone(880,0,.15,"sine",.15,440); tone(440,.18,.3,"sine",.12,220); },
@@ -116,14 +118,18 @@ const SND_SLOTS=[
  {k:"hub",name:"Transition",when:"Arrivée sur le tableau des questions",def:"transition",vol:1},
  {k:"question",name:"Musique de la question",when:"De l'écran « Question » jusqu'à la clôture des réponses (en boucle)",def:"question",vol:.55,loop:true},
  {k:"suspense",name:"Suspense",when:"Après la clôture des réponses, en boucle jusqu'à la révélation",def:"suspense",vol:.9,loop:true},
- {k:"good",name:"Révélation",when:"Affichage de la bonne réponse",def:null,synth:"good",vol:1},
+ {k:"good",name:"Révélation",when:"Affichage de la bonne réponse",def:"revelation",opt:true,synth:"good",vol:1},
+ {k:"wrong",name:"Mauvaise réponse",when:"À la révélation, quand personne n'a trouvé la bonne réponse (à la place de la révélation)",def:"mauvaise-reponse",opt:true,synth:"wrong",vol:1},
  {k:"applause",name:"Applaudissements",when:"Classement et remerciements",def:"applaudissements",synth:"applause",vol:1}];
 const SLOT=Object.fromEntries(SND_SLOTS.map(s=>[s.k,s]));
 const CUSTOM={}; // k -> {url,name}
 const AUD={};
 function slotOn(k){ return CFG.soundOn[k]!==false; }
 function slotVol(k){ const v=CFG.soundVol[k]; return v==null?SLOT[k].vol:+v; }
-function slotSrc(k){ return CUSTOM[k]?.url || (SLOT[k].def ? `/sounds/${SLOT[k].def}.mp3` : null); }
+// optional site files (public/sounds/revelation.mp3…): used only when present on the server, otherwise the synthesized sound
+const SITE_SND=new Set();
+function slotSrc(k){ const s=SLOT[k]; return CUSTOM[k]?.url || (s.def && (!s.opt || SITE_SND.has(s.def)) ? `/sounds/${s.def}.mp3` : null); }
+fetch("/api/game").then(r=>r.json()).then(j=>(j.sounds||[]).forEach(n=>SITE_SND.add(n))).catch(()=>{});
 function isPlaying(k){ const a=AUD[k]; return !!(a && !a.paused && !a.ended); }
 const SYNBUS={}, SYNLOOP={};
 function synthPlay(k,arg){ const s=SLOT[k], c=ac(); if(!c||!s.synth||!SFX[s.synth]) return 0; stopSynth(k);
@@ -439,7 +445,7 @@ function go(s){
   const prev=screen; screen=s; clearInterval(timerInt);
   if(prev!==s){
     if((prev==="home"||prev==="credits") && s!=="home" && s!=="credits") stop("generique",800);
-    if((prev==="intro"||prev==="question") && s!=="intro" && s!=="question"){ stop("question",600); endSuspense(); }
+    if((prev==="intro"||prev==="question") && s!=="intro" && s!=="question"){ stop("question",600); stop("good",800); stop("wrong",800); endSuspense(); }
     if(s==="hub") play("hub");
   }
   if(["home","hub","credits","race"].includes(s)) admin("show",{screen:s});
@@ -752,7 +758,10 @@ function phaseChanged(pph){
   if(ph==="closed"){ clearInterval(timerInt); stop("question",400); play("suspense");
     if(CFG.revealMode==="auto") revealT=setTimeout(()=>admin("reveal"),Math.max(1,Math.min(10,+CFG.suspenseSec||6))*1000);
     const t=$("#timer"); if(t) t.remove(); const from=bandPositions(); updateLive(); footer(); renderPicks(true,from); return; }
-  if(ph==="revealed"){ endSuspense(); stop("question",200); play("good"); renderQuestion(); const r=S.results[CUR.q.id]; if(r&&Object.values(r.rows).some(x=>x.ok)) confetti(1800); setTimeout(()=>app.querySelectorAll(".pk .av.jump").forEach(a=>sparkle(a.closest(".pk"))),150); return; }
+  if(ph==="revealed"){ endSuspense(); stop("question",200);
+    const r=S.results[CUR.q.id], rows=r?Object.values(r.rows).filter(x=>x.choice!=null):[], anyOk=rows.some(x=>x.ok);
+    play(rows.length&&!anyOk?"wrong":"good");                    // nobody found it: the sad music
+    renderQuestion(); if(anyOk) confetti(1800); setTimeout(()=>app.querySelectorAll(".pk .av.jump").forEach(a=>sparkle(a.closest(".pk"))),150); return; }
   if(ph==="question"){ renderQuestion(); return; }
 }
 function startTimer(){
@@ -912,7 +921,7 @@ function cfgGeneral(b){
     <label class="chk"><input type="checkbox" data-k="jokers.public"> Joker vote du public : affiche un vote simulé selon la difficulté de la question</label>
     <div class="row" style="gap:16px;margin-bottom:10px"><label class="chk" style="margin:0"><input type="checkbox" data-k="jokers.phone"> Joker appel à un ami : lance un compte à rebours sur le téléphone</label>
       <span class="row" style="gap:6px"><label class="flab" for="g10">Durée de l'appel (secondes)</label><input class="inp" id="g10" type="number" min="5" max="180" data-k="phoneSec" style="width:80px"></span></div>
-    <label class="chk"><input type="checkbox" data-k="jokerSounds"> Jouer la musique des jokers sur le téléphone du joueur qui l'utilise (50:50, vote du public, appel à un ami avec numérotation, attente et raccrochage)</label>
+    <label class="chk"><input type="checkbox" data-k="jokerSounds"> Sons sur les téléphones : la musique des jokers pour le joueur qui l'utilise (50:50, vote du public, appel à un ami), et la musique « mauvaise réponse » pour ceux qui se sont trompés</label>
     <div class="f" style="max-width:520px"><label for="g11">Chaque joker est utilisable</label><select id="g11" data-k="jokerScope"><option value="game">une seule fois par joueur pendant toute la partie (comme à la télévision)</option><option value="question">à chaque question</option></select></div>
     <p style="font-size:13px;color:var(--cfg-dim);margin:0 0 12px">Avec le barème par défaut, une bonne réponse obtenue avec les 3 jokers rapporte ${ptsTxt(pointsFor(3))}.</p>
     </div>`;
@@ -1127,7 +1136,7 @@ function cfgQuestions(b){
   $("#qAdd").onclick=()=>{ CFG.questions.push({id:uid("q"),label:"",note:"",text:"",answers:["","","",""],correct:0,points:null,jokerCost:null,difficulty:2,imgMode:"none",img:null,aImgs:[null,null,null,null]}); saveCfg(); cfgQuestions(b); const ts=b.querySelectorAll("textarea"); ts[ts.length-1]?.focus(); };
 }
 function cfgSounds(b){
-  const srcLabel=s=>CUSTOM[s.k]?`Fichier importé : ${esc(CUSTOM[s.k].name)}`:(s.def?"Son d'origine":"Son synthétisé");
+  const srcLabel=s=>CUSTOM[s.k]?`Fichier importé : ${esc(CUSTOM[s.k].name)}`:(s.def&&(!s.opt||SITE_SND.has(s.def))?`Fichier du site (sounds/${s.def}.mp3)`:s.opt?`Son synthétisé (déposez sounds/${s.def}.mp3 sur GitHub pour le remplacer)`:"Son synthétisé");
   b.innerHTML=`<p style="margin:0 0 12px;color:var(--cfg-dim)">Les sons sont joués sur l'ordinateur projeté uniquement (pas sur les téléphones). Vous pouvez remplacer chacun d'eux par votre propre fichier : il reste enregistré dans ce navigateur.</p>
   <div class="ccard"><h4>Révélation de la bonne réponse</h4><div class="grid2">
     <div class="f" style="margin:0"><label for="sRev">Dès que les réponses sont closes, la musique de suspense tourne en boucle jusqu'à</label><select id="sRev" data-k="revealMode"><option value="manual">un clic sur « Révéler la bonne réponse » (ou la touche Entrée)</option><option value="auto">une révélation automatique</option></select></div>
