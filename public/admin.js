@@ -43,6 +43,7 @@ function normalizeConfig(c){
   o.jokerSounds=!(c&&c.jokerSounds===false);
   o.streakBonus=!!(c&&c.streakBonus);
   o.reactions=!(c&&c.reactions===false);
+  o.showHosts=!(c&&c.showHosts===false);
   o.raceEvery=[0,2,3,4,5].includes(+(c&&c.raceEvery))?+c.raceEvery:(c&&c.raceEvery===0?0:3);
   o.basePoints=Math.max(1,+o.basePoints||3); o.jokerCost=Math.max(0,o.jokerCost==null?1:+o.jokerCost);
   o.questions=Array.isArray(o.questions)?o.questions.map(q=>({id:q.id||uid("q"),text:String(q.text||""),answers:[0,1,2,3].map(i=>String((q.answers||[])[i]||"")),
@@ -634,7 +635,7 @@ function mediaHTML(q,revealed){
 }
 // Make the single illustration as large as possible: it may climb into the top bar, between the players and the jokers
 function fitQuestionImage(){
-  const sec=$(".qscreen.withimg"); if(!sec) return;
+  const sec=$(".qscreen.withimg"); if(!sec){ placeHosts(); return; }
   const med=$(".qmedia.single",sec), top=$(".qtop",sec); if(!med) return;
   const grid=med.classList.contains("grid");
   const box=grid?$(".qimgs",med):$(".qimg.one",med); if(!box) return;
@@ -648,13 +649,14 @@ function fitQuestionImage(){
   const fit=(W,H)=> grid ? Math.max(40,Math.min((H-GAP)/2-2*B, ((W-GAP)/2-2*B)/a)) : Math.max(60,Math.min(H-2*B, W/a-2*B));
   const mr=med.getBoundingClientRect(), W=innerWidth;
   const blockH=c=>grid?2*(c+2*B)+GAP:c+2*B;
-  let best=fit(W*.9, mr.height-16), over=false;
+  const res=hostReserve(mr.height);                  // room kept on each side for the presenters
+  let best=fit(Math.min(W*.9,W-2*res), mr.height-16), over=false;
   if(W>=900){
     const tr=top.getBoundingClientRect(), mid=W/2;
     const items=[...top.querySelectorAll(":scope > *")].map(e=>e.getBoundingClientRect());
     const leftEdge=Math.max(0,...items.filter(r=>r.left<mid).map(r=>r.right));
     const rightEdge=Math.min(W-160,...items.filter(r=>r.left>=mid).map(r=>r.left));
-    const freeW=2*Math.max(0,Math.min(mid-leftEdge,rightEdge-mid)-18);
+    const freeW=Math.min(2*Math.max(0,Math.min(mid-leftEdge,rightEdge-mid)-18), W-2*res);
     const hOver=fit(freeW, mr.bottom-tr.top-16);
     if(blockH(hOver)>blockH(best)+24){ best=hOver; over=true; }
   }
@@ -675,7 +677,30 @@ function fitQuestionImage(){
     if(over<=1) break;
     best=Math.max(grid?30:50, best-(grid?over/2:over)-1); apply(best);
   }
+  placeHosts();
 }
+/* The presenters, in big, beside the picture(s) (or facing each other when the question has no picture) */
+const hostsShown=()=>CFG.showHosts && hostsList().length>0 && innerWidth>=800;
+function hostH(band){ return Math.min(band-34, 480, innerHeight*.56); }
+function hostReserve(band){ if(!hostsShown()) return 0; const h=hostH(band); return h<110?0:Math.round(h*AV_RATIO+34); }
+function placeHosts(){
+  const sec=$(".qscreen"), wrap=sec&&$("#qhosts",sec); if(!wrap) return;
+  const top=$(".qtop",sec), zone=$(".qzone",sec), sr=sec.getBoundingClientRect();
+  const t=top.getBoundingClientRect().bottom+6, b=zone.getBoundingClientRect().top-8;
+  const h=Math.round(hostH(b-t)), w=Math.round(h*AV_RATIO), els=[...wrap.children];
+  if(!hostsShown()||h<110){ wrap.style.display="none"; return; } wrap.style.display="";
+  const box=$(".qmedia .qimgs",sec)||$(".qmedia .qimg.one",sec), W=innerWidth;
+  let xs;
+  if(box){ const r=box.getBoundingClientRect(); xs=[r.left-22-w, r.right+22]; }
+  else { const mid=W/2, gap=Math.max(60,W*.08); xs=els.length===1?[mid-w/2]:[mid-gap/2-w, mid+gap/2]; }
+  els.forEach((e,i)=>{
+    const av=$(".qh-av",e), hs=hostsList()[i];
+    if(+av.dataset.h!==h){ av.innerHTML=avatarHTML(hs.avatar,fullName(hs),h,"",av.dataset.cls||"alive"); av.dataset.h=h; }
+    e.style.left=Math.max(6,Math.min(W-w-6,xs[i]))-sr.left+"px"; e.style.top=b-h-26-sr.top+"px"; e.style.width=w+"px";
+  });
+}
+// the presenters react to the reveal
+function hostsReact(cls){ app.querySelectorAll(".qh-av").forEach(a=>{ a.dataset.cls=cls; const v=$(".av",a); if(v){ v.classList.remove("alive"); v.classList.add(...cls.split(" ")); } }); }
 addEventListener("resize",()=>{ if(screen==="question") fitQuestionImage(); });
 // the banner, counters, picks or buttons can change size after the first fit: fit again (once per frame)
 let qObs=null, qRaf=0;
@@ -710,6 +735,7 @@ function renderQuestion(){
       <div class="jokers" id="jk">${CFG.timer && ph==="question"?`<div class="timer" id="timer"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="rgba(10,12,98,.8)" stroke="rgba(255,255,255,.2)" stroke-width="3"/><circle id="tArc" cx="18" cy="18" r="16" fill="none" stroke="var(--gold)" stroke-width="3" stroke-dasharray="100.5" stroke-dashoffset="0"/></svg><b id="tNum"></b></div>`:""}</div>
     </div>
     ${mediaHTML(q,revealed)}
+    ${CFG.showHosts&&hostsList().length?`<div class="qhosts" id="qhosts">${hostsList().map(h=>`<div class="qhost"><div class="qh-av" data-n="${esc(fullName(h))}"></div><span class="qh-nm">${esc(h.first||fullName(h))}</span></div>`).join("")}</div>`:""}
     <div class="qzone">
       <div class="wire"><div class="qbox">${esc(q.text)}</div></div>
       <div class="answers">${q.answers.map((a,i)=>{ const pc=tot?Math.round(dist[i]/tot*100):0;
@@ -719,6 +745,7 @@ function renderQuestion(){
   app.querySelectorAll("[data-zoom]").forEach(b=>b.onclick=()=>zoom(b.dataset.zoom));
   if(big){ fitQuestionImage(); watchQuestionLayout(); }
   updateLive(); footer(); renderPicks(false);
+  if(!big){ placeHosts(); requestAnimationFrame(placeHosts); }
   if(ph==="question"){ if(!isPlaying("question")) play("question",{restart:false}); startTimer(); }
 }
 // Once answers are closed, each player's avatar appears in front of the answer they chose
@@ -772,7 +799,7 @@ function phaseChanged(pph){
   if(ph==="revealed"){ endSuspense(); stop("question",200);
     const r=S.results[CUR.q.id], rows=r?Object.values(r.rows).filter(x=>x.choice!=null):[], anyOk=rows.some(x=>x.ok);
     play(rows.length&&!anyOk?"wrong":"good");                    // nobody found it: the sad music
-    renderQuestion(); if(anyOk) confetti(1800); setTimeout(()=>app.querySelectorAll(".pk .av.jump").forEach(a=>sparkle(a.closest(".pk"))),150); return; }
+    renderQuestion(); if(anyOk) confetti(1800); hostsReact(rows.length&&!anyOk?"sad":"jump"); setTimeout(()=>app.querySelectorAll(".pk .av.jump").forEach(a=>sparkle(a.closest(".pk"))),150); return; }
   if(ph==="question"){ renderQuestion(); return; }
 }
 function startTimer(){
@@ -914,6 +941,7 @@ function cfgGeneral(b){
     <button class="avb" id="hostAv" aria-label="Changer l'avatar de l'animateur" style="border:0;background:none;padding:0">${avatarHTML(CFG.host.avatar,fullName(CFG.host),64)}</button>
     <input class="inp" data-k="host.first" placeholder="Prénom" aria-label="Prénom de l'animateur"><input class="inp" data-k="host.last" placeholder="Nom" aria-label="Nom de l'animateur"></div></div>
   <div class="ccard"><h4>Deuxième animateur</h4><label class="chk"><input type="checkbox" data-k="host2.on"> Le jeu est animé à deux</label>
+    <label class="chk"><input type="checkbox" data-k="showHosts"> Afficher les présentateurs en grand pendant les questions (à côté des photos)</label>
     <div class="mrow" style="grid-template-columns:72px 1fr 1fr">
     <button class="avb" id="host2Av" aria-label="Changer l'avatar du deuxième animateur" style="border:0;background:none;padding:0">${avatarHTML(CFG.host2.avatar,fullName(CFG.host2),64)}</button>
     <input class="inp" data-k="host2.first" placeholder="Prénom" aria-label="Prénom du deuxième animateur"><input class="inp" data-k="host2.last" placeholder="Nom" aria-label="Nom du deuxième animateur"></div></div>
