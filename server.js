@@ -55,10 +55,10 @@ function scores() {
       tot[pid].points += row.points; if (row.ok) { tot[pid].good++; tot[pid].ms += row.ms || 0; }
     }
   }
-  // competition ranking (ties share the same rank)
-  const list = Object.entries(tot).map(([pid, t]) => ({ pid, ...t })).sort((a, b) => b.points - a.points);
+  // ranking: most points first; equal points are split by the total time taken on correct answers (fastest first)
+  const list = Object.entries(tot).map(([pid, t]) => ({ pid, ...t })).sort((a, b) => b.points - a.points || a.ms - b.ms);
   let rank = 0, last = null;
-  list.forEach((e, i) => { if (e.points !== last) { rank = i + 1; last = e.points; } e.rank = rank; });
+  list.forEach((e, i) => { const k = e.points + "|" + e.ms; if (k !== last) { rank = i + 1; last = k; } e.rank = rank; });
   return { list, byPid: Object.fromEntries(list.map(e => [e.pid, e])) };
 }
 

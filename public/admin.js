@@ -611,11 +611,14 @@ function renderResults(quiet){
   const list=(S?S.ranking:[]).map(e=>({...e,p:playerById(e.pid)})).filter(e=>e.p);
   const top=list.slice(0,3), order=[1,0,2].filter(i=>top[i]);
   const H={1:150,2:105,3:80};
+  const tied=e=>e.points>0 && list.filter(x=>x.points===e.points).length>1;
+  const fmtS=ms=>(ms/1000).toFixed(1).replace(".",",")+" s";
   app.innerHTML=`<section class="screen res"><h2>Le classement</h2>
     ${list.length&&S.order.length?`<div class="podium">${order.map(i=>{ const e=top[i]; return `<div class="pod">${avatarHTML(e.p.avatar,e.p.name,e.rank===1?110:86,"margin:0 auto 6px;display:block;box-shadow:0 0 0 4px var(--gold)")}
-      <div class="tn" style="font-size:clamp(18px,2vw,26px)">${esc(e.p.name)}</div><div class="tp">${ptsTxt(e.points)}</div>
+      <div class="tn" style="font-size:clamp(18px,2vw,26px)">${esc(e.p.name)}</div><div class="tp">${ptsTxt(e.points)}${tied(e)?` <small style="color:var(--ice-dim)">· ${fmtS(e.ms)}</small>`:""}</div>
       <div class="st" style="height:${H[e.rank]||70}px">${e.rank}</div></div>`; }).join("")}</div>
-    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,30)}${esc(e.p.name)}</span><b>${e.points}</b></div>`).join("")}</div>`
+    <div class="ranking cols">${list.slice(3).map(e=>`<div class="rk" style="grid-template-columns:40px 1fr auto"><i>${e.rank}</i><span style="display:flex;align-items:center;gap:10px">${avatarHTML(e.p.avatar,e.p.name,30)}${esc(e.p.name)}${tied(e)?` <small style="color:var(--ice-dim);font-size:.7em">${fmtS(e.ms)}</small>`:""}</span><b>${e.points}</b></div>`).join("")}</div>
+    ${list.some(tied)?`<p style="text-align:center;color:var(--ice-dim);margin:2vh 0 0">À points égaux, le plus rapide passe devant (temps cumulé sur ses bonnes réponses).</p>`:""}`
     :`<p style="text-align:center;color:var(--ice-dim)">Aucune question n'a encore été jouée.</p>`}
     <div class="row center" style="margin-top:3vh"><button class="btn ghost" id="bH">Tableau des questions</button><button class="btn gold" id="bC">Remerciements</button></div></section>`;
   $("#bH").onclick=()=>go("hub"); $("#bC").onclick=()=>go("credits");

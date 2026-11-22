@@ -47,11 +47,11 @@ Variante : le fichier `render.yaml` permet aussi de passer par **New + → Bluep
 
 1. **5 minutes avant**, ouvrez `https://votre-adresse.onrender.com/admin` sur le PC relié au vidéoprojecteur. Sur l'offre gratuite, le serveur s'endort après 15 minutes sans visite : le premier chargement peut prendre jusqu'à une minute. Tant que la page animateur reste ouverte, elle le garde éveillé.
 2. Saisissez le mot de passe (`ADMIN_PASSWORD`). Il est mémorisé sur ce PC.
-3. Paramètres (⚙) : vérifiez vos questions. Pour l'immersion, importez `exemples/immersion-achats.json` (onglet **Sauvegarde → Importer**) : les 10 questions et leurs 10 illustrations sont chargées.
+3. Paramètres (⚙) : vérifiez vos questions. Les 15 questions « Spécial Nantes » sont proposées au premier lancement ; si vous aviez déjà ouvert la page animateur, importez `exemples/nantes.json` (onglet **Sauvegarde → Importer**). Pour l'immersion, importez `exemples/immersion-achats.json` (onglet **Sauvegarde → Importer**) : les 10 questions et leurs 10 illustrations sont chargées.
 4. Passez en plein écran (⛶ ou F11). L'accueil affiche le **QR code** : les participants le scannent, saisissent leur prénom et choisissent un avatar. Ils apparaissent en direct sur l'écran.
 5. **Lancer le jeu** → cliquez sur une question → **Afficher la question** : elle s'affiche sur l'écran **et** sur tous les téléphones.
 6. Les réponses se closent quand tout le monde a répondu, à la fin du temps imparti ou avec **Clore les réponses**. Musique de suspense, puis **Révéler la bonne réponse** (ou touche Entrée) : pourcentages par réponse, les plus rapides, votre rebond 👉, et chaque téléphone affiche son résultat.
-7. **Classement** : classement individuel, aussi affiché sur chaque téléphone.
+7. **Classement** : classement individuel, aussi affiché sur chaque téléphone. **À points égaux, le joueur le plus rapide passe devant** (temps cumulé sur ses bonnes réponses) : il y a toujours un gagnant unique pour le lot.
 
 ## Ce qui change par rapport à la version HTML
 
@@ -87,5 +87,6 @@ public/player.*        page joueur (téléphone)
 public/common.js       avatars et utilitaires communs
 public/default-config.js  questions proposées au premier lancement
 public/sounds/         musiques jouées sur le PC animateur
+exemples/nantes.json            15 questions « Spécial Nantes », de la plus facile à la plus difficile
 exemples/immersion-achats.json  les 10 questions de l'immersion, avec illustrations
 ```
