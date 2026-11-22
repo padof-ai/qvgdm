@@ -263,9 +263,10 @@ function audioUnlock(any) {
 }
 // the site's MP3s are decoded once, then played through the audio context (works later without a new tap, also on iPhone)
 const BUF = {};
+const sndUrl = n => `/sounds/${n}.mp3${V.settings.soundV && V.settings.soundV[n] ? "?v=" + V.settings.soundV[n] : ""}`;
 function preloadFiles() {
   if (!AC || !V || !V.settings) return;
-  for (const n of V.settings.jokerFiles || []) if (!BUF[n]) BUF[n] = fetch(`/sounds/${n}.mp3`).then(r => r.arrayBuffer()).then(b => new Promise((ok, ko) => AC.decodeAudioData(b, ok, ko))).catch(() => null);
+  for (const n of V.settings.jokerFiles || []) if (!BUF[n]) BUF[n] = fetch(sndUrl(n)).then(r => r.arrayBuffer()).then(b => new Promise((ok, ko) => AC.decodeAudioData(b, ok, ko))).catch(() => null);
 }
 function tone(f, t0, dur, type = "sine", vol = .2, glide) {
   const c = AC; if (!c) return; const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + t0; o.type = type; o.frequency.setValueAtTime(f, t);
@@ -302,7 +303,7 @@ function playFile(k, loop) {
     const dur = BUF[n].then(buf => { if (!buf || stopped) return 0; src = AC.createBufferSource(); src.buffer = buf; src.loop = !!loop; src.connect(AC.destination); src.start(); return buf.duration; });
     return { stop() { stopped = true; try { src && src.stop(); } catch (e) { } }, dur };
   }
-  const a = new Audio(`/sounds/${n}.mp3`); a.loop = !!loop; a.play().catch(() => { });
+  const a = new Audio(sndUrl(n)); a.loop = !!loop; a.play().catch(() => { });
   return { stop() { a.pause(); }, dur: new Promise(r => a.addEventListener("loadedmetadata", () => r(a.duration || 0), { once: true })) };
 }
 function jokerSound(k, qid) {

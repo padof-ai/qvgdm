@@ -127,9 +127,11 @@ const AUD={};
 function slotOn(k){ return CFG.soundOn[k]!==false; }
 function slotVol(k){ const v=CFG.soundVol[k]; return v==null?SLOT[k].vol:+v; }
 // optional site files (public/sounds/revelation.mp3…): used only when present on the server, otherwise the synthesized sound
-const SITE_SND=new Set();
-function slotSrc(k){ const s=SLOT[k]; return CUSTOM[k]?.url || (s.def && (!s.opt || SITE_SND.has(s.def)) ? `/sounds/${s.def}.mp3` : null); }
-fetch("/api/game").then(r=>r.json()).then(j=>(j.sounds||[]).forEach(n=>SITE_SND.add(n))).catch(()=>{});
+// SITE_SND: files really present in public/sounds (name case ignored); SNDV: their version, so a replaced file is never taken from the browser cache
+const SITE_SND=new Set(), SNDV={}; let sndKnown=false;
+const siteHas=s=>s.def && (sndKnown ? SITE_SND.has(s.def) : !s.opt);
+function slotSrc(k){ const s=SLOT[k]; return CUSTOM[k]?.url || (siteHas(s) ? `/sounds/${s.def}.mp3${SNDV[s.def]?"?v="+SNDV[s.def]:""}` : null); }
+fetch("/api/game",{cache:"no-store"}).then(r=>r.json()).then(j=>{ (j.sounds||[]).forEach(n=>SITE_SND.add(n)); Object.assign(SNDV,j.soundV||{}); sndKnown=true; }).catch(()=>{});
 function isPlaying(k){ const a=AUD[k]; return !!(a && !a.paused && !a.ended); }
 const SYNBUS={}, SYNLOOP={};
 function synthPlay(k,arg){ const s=SLOT[k], c=ac(); if(!c||!s.synth||!SFX[s.synth]) return 0; stopSynth(k);
@@ -1136,7 +1138,10 @@ function cfgQuestions(b){
   $("#qAdd").onclick=()=>{ CFG.questions.push({id:uid("q"),label:"",note:"",text:"",answers:["","","",""],correct:0,points:null,jokerCost:null,difficulty:2,imgMode:"none",img:null,aImgs:[null,null,null,null]}); saveCfg(); cfgQuestions(b); const ts=b.querySelectorAll("textarea"); ts[ts.length-1]?.focus(); };
 }
 function cfgSounds(b){
-  const srcLabel=s=>CUSTOM[s.k]?`Fichier importé : ${esc(CUSTOM[s.k].name)}`:(s.def&&(!s.opt||SITE_SND.has(s.def))?`Fichier du site (sounds/${s.def}.mp3)`:s.opt?`Son synthétisé (déposez sounds/${s.def}.mp3 sur GitHub pour le remplacer)`:"Son synthétisé");
+  const srcLabel=s=>CUSTOM[s.k]?`⚠ Fichier importé dans ce navigateur : ${esc(CUSTOM[s.k].name)} (il passe avant le fichier du site)`
+    :siteHas(s)?`✓ Fichier du site : sounds/${s.def}.mp3`
+    :s.def&&!s.opt?`⚠ sounds/${s.def}.mp3 introuvable sur le site${s.synth?" : son synthétisé à la place":""}`
+    :s.opt?`Son synthétisé (déposez sounds/${s.def}.mp3 sur GitHub pour le remplacer)`:"Son synthétisé";
   b.innerHTML=`<p style="margin:0 0 12px;color:var(--cfg-dim)">Les sons sont joués sur l'ordinateur projeté uniquement (pas sur les téléphones). Vous pouvez remplacer chacun d'eux par votre propre fichier : il reste enregistré dans ce navigateur.</p>
   <div class="ccard"><h4>Révélation de la bonne réponse</h4><div class="grid2">
     <div class="f" style="margin:0"><label for="sRev">Dès que les réponses sont closes, la musique de suspense tourne en boucle jusqu'à</label><select id="sRev" data-k="revealMode"><option value="manual">un clic sur « Révéler la bonne réponse » (ou la touche Entrée)</option><option value="auto">une révélation automatique</option></select></div>
@@ -1148,7 +1153,7 @@ function cfgSounds(b){
       <button class="cb sm" data-play>▶ Écouter</button><button class="cb sm" data-stop>■ Arrêter</button>
       <label class="flab" style="display:flex;align-items:center;gap:6px">Volume <input type="range" min="0" max="1" step="0.05" value="${slotVol(s.k)}" data-vol aria-label="Volume ${esc(s.name)}"></label>
       <label class="cb sm" style="cursor:pointer">Remplacer par un fichier…<input type="file" accept="audio/*" class="sr" data-file></label>
-      ${CUSTOM[s.k]?`<button class="cb sm dan" data-reset>${s.def?"Revenir au son d'origine":"Retirer le fichier"}</button>`:""}
+      ${CUSTOM[s.k]?`<button class="cb sm dan" data-reset>${s.def?"Revenir au fichier du site":"Retirer le fichier"}</button>`:""}
     </div></div>`).join("")}`;
   bindInputs(b,CFG,k=>{ if(k==="suspenseSec"){ const v=+CFG.suspenseSec; if(!(v>=1&&v<=10)){ CFG.suspenseSec=Math.max(1,Math.min(10,v||6)); saveCfg(); } } });
   const ss=$("#sSus",b); ss&&ss.addEventListener("change",()=>{ ss.value=CFG.suspenseSec; });

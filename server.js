@@ -174,7 +174,7 @@ function playerView(pid, sc, aw) {
   sc = sc || scores(); const me = sc.byPid[pid] || { points: 0, rank: sc.list.length, good: 0, ms: 0, tied: 0 };
   const v = { gameId: G.gameId, me: { ...publicPlayer(p), points: me.points, rank: me.rank, good: me.good, of: sc.list.length, ms: me.ms, tied: me.tied, streak: me.streak || 0 },
     phase: G.phase, screen: G.show.screen, hold: !!G.show.hold, clap: clapView(false),
-    trophies: ["results", "credits"].includes(G.phase) && !G.show.hold ? ((aw || awards(sc)).byPid[pid] || []) : [], settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false, jokerSounds: G.settings.jokerSounds !== false, jokerFiles: JOKER_FILES, reactions: G.settings.reactions !== false, title: G.settings.title } };
+    trophies: ["results", "credits"].includes(G.phase) && !G.show.hold ? ((aw || awards(sc)).byPid[pid] || []) : [], settings: { jokers: G.settings.jokers, phoneSec: G.settings.phoneSec, jokerScope: G.settings.jokerScope, tieSpeed: G.settings.tieSpeed !== false, jokerSounds: G.settings.jokerSounds !== false, jokerFiles: PHONE_SOUNDS.filter(n => snd()[n]), soundV: sndVersions(), reactions: G.settings.reactions !== false, title: G.settings.title } };
   if (G.cur && ["intro", "question", "closed", "revealed"].includes(G.phase)) {
     const a = G.cur.answers_by[pid] || G.cur.jokerOnly[pid] || null;
     const usedHere = (a && a.jokers) || {};
@@ -398,8 +398,18 @@ function playerAction(path, b) {
 // Avatars: generated character, emoji or initials; photos only when chosen by the host
 // optional MP3s for the jokers on the phones (otherwise the phones synthesize the sounds)
 // optional music files for the projected screen (otherwise a synthesized sound)
-const SITE_SOUNDS = ["revelation", "mauvaise-reponse"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
-const JOKER_FILES = ["joker-5050", "joker-public", "joker-phone", "mauvaise-reponse"].filter(n => fs.existsSync(path.join(__dirname, "public", "sounds", n + ".mp3")));
+/* Music files of public/sounds, found whatever the case of their name (Question.MP3, suspense.mP3…).
+   Each one gets a version (date of the file) so that a replaced file is never played from an old browser cache. */
+const SOUNDS_DIR = path.join(__dirname, "public", "sounds");
+function soundIndex() {
+  const idx = {};
+  try { for (const f of fs.readdirSync(SOUNDS_DIR)) { const m = /^(.+)\.mp3$/i.exec(f); if (!m) continue; const st = fs.statSync(path.join(SOUNDS_DIR, f)); if (st.isFile() && st.size > 0) idx[m[1].toLowerCase()] = { file: f, v: Math.round(st.mtimeMs).toString(36) + st.size.toString(36) }; } } catch (e) { }
+  return idx;
+}
+let SND = soundIndex(), sndAt = Date.now();
+const snd = () => { if (Date.now() - sndAt > 5000) { SND = soundIndex(); sndAt = Date.now(); } return SND; };
+const sndVersions = () => Object.fromEntries(Object.entries(snd()).map(([n, x]) => [n, x.v]));
+const PHONE_SOUNDS = ["joker-5050", "joker-public", "joker-phone", "mauvaise-reponse"];
 const AV_MAX = 180000;   // characters of an avatar picture (data URL); the admin and the phones resize pictures below this
 const REACTIONS = ["👏", "😂", "😮", "❤️", "🔥", "🎉"];
 let clapT = null;
@@ -443,6 +453,25 @@ function serveFile(res, file, cache) {
     fs.createReadStream(file).pipe(res);
   });
 }
+function serveSound(req, res, file, versioned) {
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404); return res.end(); }
+    const etag = `"${st.size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}"`;
+    const h = { "Content-Type": "audio/mpeg", "Accept-Ranges": "bytes", "ETag": etag, "Last-Modified": st.mtime.toUTCString(),
+      "Cache-Control": versioned ? "public, max-age=31536000, immutable" : "no-cache", "X-Content-Type-Options": "nosniff" };
+    if (req.headers["if-none-match"] === etag) { res.writeHead(304, h); return res.end(); }
+    const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+    if (r && (r[1] || r[2])) {
+      let a = r[1] ? +r[1] : st.size - +r[2], b = r[1] && r[2] ? +r[2] : st.size - 1; b = Math.min(b, st.size - 1);
+      if (a > b || a < 0) { res.writeHead(416, { "Content-Range": `bytes */${st.size}` }); return res.end(); }
+      res.writeHead(206, { ...h, "Content-Range": `bytes ${a}-${b}/${st.size}`, "Content-Length": b - a + 1 });
+      return fs.createReadStream(file, { start: a, end: b }).pipe(res);
+    }
+    res.writeHead(200, { ...h, "Content-Length": st.size });
+    if (req.method === "HEAD") return res.end();
+    fs.createReadStream(file).pipe(res);
+  });
+}
 function json(res, code, obj) { const s = JSON.stringify(obj); res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(s); }
 function readBody(req, max = 200000) {
   return new Promise((resolve, reject) => {
@@ -459,7 +488,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && (p === "/" || p === "/jouer")) return serveFile(res, path.join(PUBLIC, "player.html"));
     if (req.method === "GET" && p === "/admin") return serveFile(res, path.join(PUBLIC, "admin.html"));
-    if (req.method === "GET" && p === "/api/game") return json(res, 200, { gameId: G.gameId, sounds: SITE_SOUNDS });
+    if (req.method === "GET" && p === "/api/game") return json(res, 200, { gameId: G.gameId, sounds: Object.keys(snd()), soundV: sndVersions() });
     if (req.method === "GET" && p === "/healthz") return json(res, 200, { ok: true, players: G.players.size });
     if (req.method === "GET" && p.startsWith("/api/av/")) {
       const pl = G.players.get(p.slice(8)), a = pl && pl.avatar;
@@ -512,7 +541,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET") {
       const f = path.normalize(path.join(PUBLIC, decodeURIComponent(p)));
       if (!f.startsWith(PUBLIC + path.sep)) return json(res, 403, { ok: false });
-      return serveFile(res, f, p.startsWith("/sounds/"));
+      if (p.startsWith("/sounds/")) {                // music: name case ignored, partial requests (seek, loop) supported
+        const m = /^\/sounds\/([^/]+?)(\.mp3)?$/i.exec(decodeURIComponent(p)), x = m && snd()[m[1].toLowerCase()];
+        return x ? serveSound(req, res, path.join(SOUNDS_DIR, x.file), url.searchParams.has("v")) : serveFile(res, f);
+      }
+      return serveFile(res, f);
     }
     json(res, 404, { ok: false });
   } catch (e) {
