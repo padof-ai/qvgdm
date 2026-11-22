@@ -108,6 +108,11 @@ Variante : le fichier `render.yaml` permet aussi de passer par **New + → Bluep
   - **Photo souvenir** : une image du podium et de tous les avatars, à télécharger depuis l'écran projeté ou depuis chaque téléphone (« 📸 Ma photo souvenir »).
   - **Personnaliser son personnage** sur le téléphone, avant ou pendant la partie : coiffure, couleurs des cheveux, de la peau et du haut, sweat, pull ou t-shirt, motif, pantalon ou jupe, baskets, pose, sourire, lunettes, taches de rousseur, barbe.
   - **5 dernières secondes** : le chrono tique et les téléphones vibrent à chaque seconde.
+- **Questions spéciales** (facultatives, à choisir question par question : Paramètres › Questions › *Question spéciale*) :
+  - **×2 Double points** : les points de la question comptent double (bonne réponse sans joker : 2 × les points en jeu) ;
+  - **⚡ Bonus rapidité** : le joueur le plus rapide à donner la bonne réponse gagne un bonus (2 points par défaut, réglable) ;
+  - **🎲 Quitte ou double** : avant de répondre, chaque joueur mise sur son téléphone rien, 25 %, 50 % ou tous ses points. Bonne réponse : il gagne les points de la question plus sa mise ; mauvaise réponse : il perd sa mise.
+  Une question spéciale est signalée par un badge sur le tableau des questions et par une grande annonce sur l'écran d'introduction et sur les téléphones. Après la révélation, l'écran indique qui a gagné le bonus rapidité, ou le bilan des mises. Dans le fichier Excel, une colonne facultative « Question spéciale » (Double points / Bonus rapidité / Quitte ou double) est reconnue à l'import.
 - **Gestion des joueurs** : cliquez sur un joueur dans le mur de l'accueil, ou sur le bouton « 👥 joueurs connectés » du tableau des questions, pour :
   - **changer son avatar** (personnage, émoji, initiales ou photo importée) : il change aussi sur son téléphone ;
   - **l'exclure du jeu** : ses points sont retirés, son téléphone affiche qu'il ne participe plus, et il ne peut pas revenir sous ce nom. La liste « Exclus » permet de le réautoriser.

@@ -154,7 +154,8 @@ function publicPlayer(p) { return { pid: p.pid, name: p.name, avatar: viewAvatar
 function adminView() {
   const sc = scores();
   const cur = G.cur && {
-    qid: G.cur.qid, label: G.cur.label, text: G.cur.text, answers: G.cur.answers, points: G.cur.points,
+    qid: G.cur.qid, label: G.cur.label, text: G.cur.text, answers: G.cur.answers, points: G.cur.points, special: G.cur.special, speedBonus: G.cur.speedBonus,
+    bets: G.cur.special === "bet" ? Object.values(G.cur.answers_by).concat(Object.values(G.cur.jokerOnly)).filter(x => x.bet > 0).map(x => x.bet) : null,
     deadline: G.cur.deadline, openedAt: G.cur.openedAt, phase: G.phase,
     answered: Object.keys(G.cur.answers_by).length,
     dist: [0, 1, 2, 3].map(i => Object.values(G.cur.answers_by).filter(a => a.choice === i).length),
@@ -184,10 +185,12 @@ function playerView(pid, sc, aw) {
       deadline: G.cur.deadline, serverNow: now(),
       text: G.phase === "intro" ? null : G.cur.text, answers: G.phase === "intro" ? null : G.cur.answers,
       mine: a && a.choice != null ? a.choice : null, gone: (a && a.gone) || [], vote: (a && a.vote) || null,
-      used: usedHere, avail, phoneUntil: (a && a.phoneUntil) || null };
+      used: usedHere, avail, phoneUntil: (a && a.phoneUntil) || null,
+      special: G.cur.special, speedBonus: G.cur.speedBonus, bet: (a && a.bet) || 0, betPct: a && a.betPct != null ? a.betPct : null,
+      stakeBase: G.cur.special === "bet" ? stakeBase(pid, sc) : 0 };
     if (G.phase === "revealed") {
       const r = G.results[G.cur.qid]; const row = r && r.rows[pid];
-      v.q.correct = G.cur.correct; v.q.note = G.cur.note || ""; v.q.result = row ? { ok: row.ok, points: row.points, ms: row.ms } : null;
+      v.q.correct = G.cur.correct; v.q.note = G.cur.note || ""; v.q.result = row ? { ok: row.ok, points: row.points, ms: row.ms, bet: row.bet || 0, bonus: row.bonus || 0, double: !!row.double } : null;
     }
   }
   return v;
@@ -232,9 +235,17 @@ function reveal() {
     if (a.choice == null) continue;
     const nj = ["fifty", "public", "phone"].filter(k => a.jokers && a.jokers[k]).length;
     const ok = a.choice === G.cur.correct;
-    rows[pid] = { choice: a.choice, ok, points: ok ? Math.max(0, G.cur.points - nj * G.cur.jokerCost) : 0, ms: answerMs(a), jokers: a.jokers || {} };
+    let pts = ok ? Math.max(0, G.cur.points - nj * G.cur.jokerCost) : 0;
+    const row = { choice: a.choice, ok, points: 0, ms: answerMs(a), jokers: a.jokers || {} };
+    if (G.cur.special === "double") { pts *= 2; row.double = true; }
+    if (G.cur.special === "bet") { row.bet = a.bet || 0; pts = ok ? pts + row.bet : -row.bet; }      // stake won, or lost
+    row.points = pts; rows[pid] = row;
   }
-  G.results[G.cur.qid] = { label: G.cur.label, correct: G.cur.correct, at: now(), rows, answers: G.cur.answers, text: G.cur.text };
+  if (G.cur.special === "speed") {               // the fastest good answer wins the bonus
+    const f = Object.entries(rows).filter(([, r]) => r.ok).sort((x, y) => x[1].ms - y[1].ms)[0];
+    if (f) { f[1].bonus = G.cur.speedBonus; f[1].points += G.cur.speedBonus; f[1].fastest = true; }
+  }
+  G.results[G.cur.qid] = { label: G.cur.label, correct: G.cur.correct, at: now(), rows, answers: G.cur.answers, text: G.cur.text, special: G.cur.special, speedBonus: G.cur.speedBonus };
   if (!G.order.includes(G.cur.qid)) G.order.push(G.cur.qid);
   G.phase = "revealed"; pushAll();
 }
@@ -262,7 +273,9 @@ function adminAction(b) {
       const answers = [0, 1, 2, 3].map(i => clean((q.answers || [])[i], 300));
       G.cur = { qid: clean(q.id, 40), label: clean(q.label, 120), n: +q.n || 0, text: clean(q.text, 1000), answers,
         correct: Math.max(0, Math.min(3, +q.correct || 0)), points: Math.max(0, +q.points || 0), jokerCost: Math.max(0, +q.jokerCost || 0),
-        difficulty: Math.max(1, Math.min(4, +q.difficulty || 2)), note: clean(q.note, 1500), answers_by: {}, jokerOnly: {}, openedAt: null, deadline: null, timer: null };
+        difficulty: Math.max(1, Math.min(4, +q.difficulty || 2)), note: clean(q.note, 1500), answers_by: {}, jokerOnly: {}, openedAt: null, deadline: null, timer: null,
+        // special questions: "double" (points ×2), "speed" (bonus for the fastest good answer), "bet" (each player stakes part of his points)
+        special: SPECIALS.includes(q.special) ? q.special : "", speedBonus: Math.max(1, Math.min(50, Math.round(+q.speedBonus) || 2)) };
     }
     G.show = { screen: "question" };
     if (a === "intro") { G.phase = "intro"; pushAll(); return { ok: true }; }
@@ -379,6 +392,15 @@ function playerAction(path, b) {
     delete G.cur.jokerOnly[p.pid];
     pushAll(); maybeAutoClose(); return { ok: true };
   }
+  if (path === "bet") {                     // "quitte ou double": stake 0, 25, 50 or 100 % of one's points before answering
+    if (G.phase !== "question" || G.cur.special !== "bet") return { ok: false, error: "Les mises sont closes." };
+    const pct = +b.pct; if (![0, 25, 50, 100].includes(pct)) return { ok: false };
+    let a = G.cur.answers_by[p.pid] || G.cur.jokerOnly[p.pid];
+    if (a && a.choice != null) return { ok: false, error: "Vous avez déjà répondu." };
+    if (!a) { a = { jokers: {} }; G.cur.jokerOnly[p.pid] = a; }
+    a.betPct = pct; a.bet = Math.round(stakeBase(p.pid, scores()) * pct / 100);
+    pushAll(); return { ok: true };
+  }
   if (path === "joker") {
     if (G.phase !== "question") return { ok: false, error: "Les réponses sont closes." };
     const k = b.kind; if (!["fifty", "public", "phone"].includes(k) || !G.settings.jokers[k]) return { ok: false };
@@ -411,6 +433,9 @@ const snd = () => { if (Date.now() - sndAt > 5000) { SND = soundIndex(); sndAt =
 const sndVersions = () => Object.fromEntries(Object.entries(snd()).map(([n, x]) => [n, x.v]));
 const PHONE_SOUNDS = ["joker-5050", "joker-public", "joker-phone", "mauvaise-reponse"];
 const AV_MAX = 180000;   // characters of an avatar picture (data URL); the admin and the phones resize pictures below this
+const SPECIALS = ["double", "speed", "bet"];
+// points a player can stake: his total before this question (never below 0)
+function stakeBase(pid, sc) { const e = sc.byPid[pid]; let pts = e ? e.points : 0; const r = G.cur && G.results[G.cur.qid]; if (r && r.rows[pid]) pts -= r.rows[pid].points; return Math.max(0, pts); }
 const REACTIONS = ["👏", "😂", "😮", "❤️", "🔥", "🎉"];
 let clapT = null;
 function clapView(admin) {
@@ -534,7 +559,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req, 2000);
       return json(res, 200, { ok: isAdmin(b.key), protected: !!ADMIN_PASSWORD });
     }
-    if (req.method === "POST" && ["/api/join", "/api/answer", "/api/joker", "/api/clap", "/api/react", "/api/avatar"].includes(p)) {
+    if (req.method === "POST" && ["/api/join", "/api/answer", "/api/joker", "/api/clap", "/api/react", "/api/avatar", "/api/bet"].includes(p)) {
       const b = await readBody(req, p === "/api/join" || p === "/api/avatar" ? AV_MAX + 4000 : 5000);
       return json(res, 200, playerAction(p.slice(5), b));
     }

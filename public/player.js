@@ -129,8 +129,8 @@ function render(force) {
   if (V.phase === "question" && q) return renderQuestion();
   stopTick(); stopCall(false); if (mp3El) { mp3El.stop(); mp3El = null; }
   if (V.phase === "intro" && q) {
-    app.innerHTML = `<div class="brand">Question ${q.n || ""}</div><div class="card center"><p class="big">${esc(q.label || "Nouvelle question")}</p>
-      <p style="margin:10px 0 0"><span class="chip">${ptsTxt(q.points)} en jeu</span></p><p class="dim" style="margin-bottom:0">Préparez-vous : la question arrive !</p></div>${meHTML()}${rxHTML()}`; bindRx();
+    app.innerHTML = `<div class="brand">Question ${q.n || ""}</div>${spBanner(q)}<div class="card center"><p class="big">${esc(q.label || "Nouvelle question")}</p>
+      <p style="margin:10px 0 0"><span class="chip">${ptsTxt(q.points * (q.special === "double" ? 2 : 1))} en jeu</span></p><p class="dim" style="margin-bottom:0">Préparez-vous : la question arrive !</p></div>${meHTML()}${rxHTML()}`; bindRx();
     return;
   }
   if (V.phase === "closed" && q) {
@@ -145,7 +145,9 @@ function render(force) {
     app.innerHTML = `<div class="brand">Question ${q.n || ""}</div>
       <div class="hero">${avatarHTML(V.me.avatar, V.me.name, 190, "", r && r.ok ? "jump loop" : r ? "sad" : "alive")}${V.me.streak >= 3 && r && r.ok ? `<div class="streak">🔥 ${V.me.streak} d'affilée !</div>` : ""}</div>
       <div class="result ${r ? (r.ok ? "ok" : "ko") : "none"}"><div class="t">${r ? (r.ok ? "Bonne réponse !" : "Mauvaise réponse…") : "Pas de réponse"}</div>
-      <div class="p">${r ? (r.ok ? "+ " + ptsTxt(r.points) : "0 point") : "0 point"}</div>${r && r.ms != null && V.settings.tieSpeed ? `<div class="dim" style="margin-top:4px;font-size:14px">⏱ Réponse en ${secTxt(r.ms)}</div>` : ""}</div>
+      <div class="p">${r ? (r.points > 0 ? "+ " + ptsTxt(r.points) : r.points < 0 ? "− " + ptsTxt(-r.points) : "0 point") : "0 point"}</div>
+      ${r && r.double && r.ok ? `<div class="spres">×2 Points doublés !</div>` : ""}${r && r.bonus ? `<div class="spres">⚡ +${ptsTxt(r.bonus)} : vous avez été le plus rapide !</div>` : ""}
+      ${r && r.bet ? `<div class="spres">🎲 ${r.ok ? `Mise gagnée : +${ptsTxt(r.bet)}` : `Mise perdue : −${ptsTxt(r.bet)}`}</div>` : ""}${r && r.ms != null && V.settings.tieSpeed ? `<div class="dim" style="margin-top:4px;font-size:14px">⏱ Réponse en ${secTxt(r.ms)}</div>` : ""}</div>
       <div class="card"><span class="lbl">La bonne réponse</span><div class="ans good" style="min-height:52px"><span class="L">${L[q.correct]}</span><span>${esc(q.answers[q.correct])}</span></div>
       ${r && !r.ok ? `<p class="dim" style="margin:10px 0 0">Vous aviez répondu ${L[q.mine]} : « ${esc(q.answers[q.mine])} »</p>` : ""}</div>
       ${rxHTML()}${q.note ? `<div class="card"><span class="lbl">👉 Le saviez-vous ?</span><p style="margin:0;line-height:1.45;color:#fff">${esc(q.note)}</p></div>` : ""}${meHTML(true)}`;
@@ -197,8 +199,10 @@ function renderQuestion() {
   const showVote = q.vote && !answered;
   if (q.vote && !voteAt[q.qid]) voteAt[q.qid] = Date.now() + VOTE_MS;
   const voteDone = q.vote && Date.now() >= voteAt[q.qid];
-  app.innerHTML = `<div class="qhead"><span class="brand" style="text-align:left">Question ${q.n || ""}</span><span class="chip">${ptsTxt(Math.max(0, q.points - Object.values(q.used || {}).filter(Boolean).length * (q.jokerCost || 0)))} en jeu</span>${soundsWanted() ? `<button class="sndbtn" id="snd" aria-label="${sndOn ? "Couper le son des jokers" : "Activer le son des jokers"}">${sndOn ? "🔊" : "🔇"}</button>` : ""}<span class="timer" id="tm"></span></div>
+  app.innerHTML = `<div class="qhead"><span class="brand" style="text-align:left">Question ${q.n || ""}</span><span class="chip">${ptsTxt(Math.max(0, q.points - Object.values(q.used || {}).filter(Boolean).length * (q.jokerCost || 0)) * (q.special === "double" ? 2 : 1))} en jeu</span>${soundsWanted() ? `<button class="sndbtn" id="snd" aria-label="${sndOn ? "Couper le son des jokers" : "Activer le son des jokers"}">${sndOn ? "🔊" : "🔇"}</button>` : ""}<span class="timer" id="tm"></span></div>
+    ${q.special ? `<div class="spline sp-${q.special}">${SPN[q.special].icon} ${SPN[q.special].title}${q.special === "speed" ? ` : +${ptsTxt(q.speedBonus)} au plus rapide` : q.special === "double" ? " : les points comptent double" : ""}</div>` : ""}
     <div class="card"><div class="qtext">${esc(q.text)}</div></div>
+    ${q.special === "bet" && !answered ? betHTML(q) : ""}
     ${answered
       ? `<div class="card center"><p class="big">Réponse ${L[q.mine]} enregistrée ✓</p><p class="dim">« ${esc(q.answers[q.mine])} »</p><p style="margin:0">Attendez la révélation sur l'écran…</p></div>`
       : `<div class="answers">${q.answers.map((a, i) => `<button class="ans ${q.gone.includes(i) ? "gone" : ""}" data-a="${i}" ${q.gone.includes(i) ? "disabled" : ""}><span class="L">${L[i]}</span><span>${esc(a)}</span></button>`).join("")}</div>`}
@@ -213,6 +217,7 @@ function renderQuestion() {
     ${meHTML()}`;
   app.querySelectorAll("[data-a]").forEach(b => b.onclick = () => answer(+b.dataset.a, b));
   app.querySelectorAll("[data-j]").forEach(b => b.onclick = () => joker(b.dataset.j, b));
+  app.querySelectorAll("[data-bet]").forEach(b => b.onclick = () => bet(+b.dataset.bet, b));
   if ($("#snd")) $("#snd").onclick = () => { sndOn = !sndOn; try { localStorage.setItem("qvgda_snd", sndOn ? "1" : "0"); } catch (e) { } if (sndOn) audioUnlock(); else stopCall(false); render(true); };
   clearTimeout(voteT);
   if (showVote && !voteDone) {
@@ -452,4 +457,23 @@ async function souvenir() {
     $("#dl", ov).onclick = () => downloadCanvas(c, "souvenir-quiz.png"); $("#cl", ov).onclick = () => ov.remove();
   } catch (e) { toast("Photo indisponible pour le moment."); }
   if (b) { b.disabled = false; b.textContent = "📸 Ma photo souvenir"; }
+}
+
+/* ---------------------------------------------------------------- special questions */
+const SPN = { double: { icon: "×2", title: "Double points", txt: "Les points de cette question comptent double !" },
+  speed: { icon: "⚡", title: "Bonus rapidité", txt: "Le plus rapide à trouver la bonne réponse gagne un bonus !" },
+  bet: { icon: "🎲", title: "Quitte ou double", txt: "Avant de répondre, misez une partie de vos points : gagnée si vous avez bon, perdue sinon !" } };
+function spBanner(q) { const x = q.special && SPN[q.special]; return x ? `<div class="spcard sp-${q.special}"><div class="spi">${x.icon}</div><div><b>Question spéciale : ${x.title}</b><br>${q.special === "speed" ? `Le plus rapide à trouver la bonne réponse gagne ${ptsTxt(q.speedBonus)} de plus !` : x.txt}</div></div>` : ""; }
+function betHTML(q) {
+  const base = q.stakeBase || 0;
+  if (!base) return `<div class="card betcard"><span class="lbl">🎲 Quitte ou double</span><p style="margin:0">Vous n'avez pas encore de points à miser : répondez simplement !</p></div>`;
+  return `<div class="card betcard"><span class="lbl">🎲 Quitte ou double : votre mise (vous avez ${ptsTxt(base)})</span>
+    <div class="bets">${[[0, "Rien"], [25, "25 %"], [50, "50 %"], [100, "Tout !"]].map(([p, l]) => `<button class="betb ${q.betPct === p ? "on" : ""}" data-bet="${p}"><b>${l}</b><small>${Math.round(base * p / 100)} pt${Math.round(base * p / 100) > 1 ? "s" : ""}</small></button>`).join("")}</div>
+    <p class="dim" style="margin:6px 0 0;font-size:13px">${q.betPct == null ? "Choisissez votre mise, puis répondez." : q.bet ? `Bonne réponse : +${ptsTxt(q.points + q.bet)} · mauvaise réponse : −${ptsTxt(q.bet)}` : "Sans mise : vous jouez seulement les points de la question."}</p></div>`;
+}
+async function bet(pct, btn) {
+  app.querySelectorAll("[data-bet]").forEach(b => b.classList.toggle("on", b === btn));
+  try { navigator.vibrate && navigator.vibrate(15); } catch (e) { }
+  const r = await api("/api/bet", { pid: ME.pid, token: ME.token, qid: V.q.qid, pct }).catch(() => ({ ok: false, error: "Réseau indisponible : réessayez." }));
+  if (!r.ok) toast(r.error || "Mise refusée.");
 }

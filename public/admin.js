@@ -49,6 +49,7 @@ function normalizeConfig(c){
     correct:Math.min(3,Math.max(0,+q.correct||0)), label:String(q.label||""), note:String(q.note||""),
     jokerCost:numOrNull(q.jokerCost), points:numOrNull(q.points),
     difficulty:[1,2,3,4].includes(+q.difficulty)?+q.difficulty:2,
+    special:["double","speed","bet"].includes(q.special)?q.special:"", speedBonus:Math.max(1,Math.min(50,Math.round(+q.speedBonus)||2)),
     imgMode:["none","single","answers"].includes(q.imgMode)?q.imgMode:"none",img:q.img||null,aImgs:[0,1,2,3].map(i=>(q.aImgs||[])[i]||null),
     imgOrig:q.imgOrig||null,imgCrop:cleanCrop(q.imgCrop),aOrig:[0,1,2,3].map(i=>(q.aOrig||[])[i]||null),aCrop:[0,1,2,3].map(i=>cleanCrop((q.aCrop||[])[i]))})):[];
   o.soundOn=Object.assign({}, (c&&c.soundOn)||{});
@@ -492,9 +493,9 @@ function renderHub(){
     if(r){ const best=Object.entries(r.rows).filter(([,x])=>x.ok).sort((a,b)=>a[1].ms-b[1].ms).slice(0,3).map(([pid])=>playerById(pid)).filter(Boolean);
       who=`<span class="who"><span class="gauge" title="${good} bonne(s) réponse(s) sur ${n}"><i style="width:${pct}%"></i></span><span class="nm">${good}/${n} bonne${good>1?"s":""} réponse${good>1?"s":""}</span>${best.length?`<span class="avs" title="Les plus rapides : ${esc(best.map(p=>p.name).join(", "))}">${best.map(p=>avatarHTML(p.avatar,p.name,40)).join("")}</span>`:""}</span>`; }
     return `<div class="trow"><span class="tcheck ${r?"on":""}" aria-hidden="true">✓</span>
-      <button class="tcode ${cls}" data-q="${q.id}" title="${esc(qLabel(q)+" — "+q.text)}"><span class="tl">${esc(qLabel(q))}</span></button>
+      <button class="tcode ${cls}" data-q="${q.id}" title="${esc(qLabel(q)+" — "+q.text)}${q.special?" — "+esc(SPECIAL[q.special].title):""}"><span class="tl">${esc(qLabel(q))}</span>${spBadge(q)}</button>
       <span class="tjok">${diffBadge(q)}${who}</span>
-      <button class="tpts" data-p="${q.id}" title="${r?"Voir le détail et corriger":""}" ${r?"":"disabled"}>${r?`${pct} %`:`<span style="color:var(--ice-dim);font-size:.8em">${ptsTxt(basePts(q))} en jeu</span>`}</button></div>`;
+      <button class="tpts" data-p="${q.id}" title="${r?"Voir le détail et corriger":""}" ${r?"":"disabled"}>${r?`${pct} %`:`<span style="color:var(--ice-dim);font-size:.8em">${ptsTxt(basePts(q)*(q.special==="double"?2:1))} en jeu</span>`}</button></div>`;
   }).join("");
   const nj=nJokers(), q0=CFG.questions[0];
   const uniform=new Set(CFG.questions.map(q=>basePts(q)+"/"+jokerPts(q))).size<=1;
@@ -601,12 +602,19 @@ async function playQuestion(qid){
   await admin("intro",{q:payload(q)});
   go("intro");
 }
-function payload(q){ return {id:q.id,label:qLabel(q),note:q.note||"",n:CFG.questions.indexOf(q)+1,text:q.text,answers:q.answers,correct:q.correct,points:basePts(q),jokerCost:jokerPts(q),difficulty:q.difficulty}; }
+function payload(q){ return {id:q.id,label:qLabel(q),note:q.note||"",n:CFG.questions.indexOf(q)+1,text:q.text,answers:q.answers,correct:q.correct,points:basePts(q),jokerCost:jokerPts(q),difficulty:q.difficulty,special:q.special||"",speedBonus:q.speedBonus||2}; }
+/* ---------- special questions */
+const SPECIAL={ double:{icon:"×2",title:"Double points",txt:q=>`Les points de cette question comptent double : ${ptsTxt(basePts(q)*2)} en jeu !`},
+  speed:{icon:"⚡",title:"Bonus rapidité",txt:q=>`Le plus rapide à donner la bonne réponse gagne ${ptsTxt(q.speedBonus||2)} de plus !`},
+  bet:{icon:"🎲",title:"Quitte ou double",txt:q=>`Misez une partie de vos points sur votre téléphone : bonne réponse, la mise est gagnée ; mauvaise réponse, elle est perdue !`} };
+const spBadge=q=>q.special&&SPECIAL[q.special]?`<span class="spbadge sp-${q.special}" title="${esc(SPECIAL[q.special].title)}">${SPECIAL[q.special].icon}</span>`:"";
+const stakeTxt=q=>q.special==="double"?`${ptsTxt(basePts(q)*2)} en jeu <small>(×2)</small>`:q.special==="speed"?`${ptsTxt(basePts(q))} en jeu <small>+${q.speedBonus||2} au plus rapide</small>`:q.special==="bet"?`🎲 ${ptsTxt(basePts(q))} + vos mises`:`${ptsTxt(basePts(q))} en jeu`;
 function renderIntro(){
   const q=CUR.q;
   app.innerHTML=`<section class="screen intro">
+    ${q.special&&SPECIAL[q.special]?`<div class="spbanner sp-${q.special}"><div class="spi">${SPECIAL[q.special].icon}</div><div><div class="spt">Question spéciale : ${esc(SPECIAL[q.special].title)}</div><div class="spx">${esc(SPECIAL[q.special].txt(q))}</div></div></div>`:""}
     <div class="q">${esc(qLabel(q))}</div><div class="lab">Question ${CUR.n}</div>
-    <div class="stake" style="font-size:clamp(20px,2.4vw,30px)">${ptsTxt(basePts(q))} en jeu</div>
+    <div class="stake" style="font-size:clamp(20px,2.4vw,30px)">${stakeTxt(q)}</div>
     <p style="font-size:clamp(18px,1.8vw,24px);color:#fff;margin:0">📱 <b id="nOn">${onlineCount()}</b> joueur(s) prêt(s) à répondre${CFG.timer?` · ${CFG.timer} secondes pour répondre`:""}</p>
     <div class="row center"><button class="btn gold" id="bQ">Afficher la question</button><button class="btn ghost" id="bX">Retour</button></div></section>`;
   $("#bQ").onclick=async()=>{ $("#bQ").disabled=true; const r=await admin("open",{q:payload(q),timer:CFG.timer}); if(r.ok){ screen="question"; renderQuestion(); } else { $("#bQ").disabled=false; toast("Le serveur n'a pas répondu : réessayez."); } };
@@ -698,7 +706,7 @@ function renderQuestion(){
   app.innerHTML=`<section class="screen qscreen ${big?"withimg":""}">
     <div class="qtop">
       <div class="row" style="gap:10px"><div class="players"><b>${esc(qLabel(q))}</b><span id="cnt"></span></div>
-        <div class="stake">${ptsTxt(basePts(q))} en jeu</div></div>
+        <div class="stake">${stakeTxt(q)}</div>${q.special?`<span class="spbadge sp-${q.special} big" title="${esc(SPECIAL[q.special].title)}">${SPECIAL[q.special].icon} ${esc(SPECIAL[q.special].title)}</span>`:""}<span class="betinfo" id="betInfo"></span></div>
       <div class="jokers" id="jk">${CFG.timer && ph==="question"?`<div class="timer" id="timer"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="rgba(10,12,98,.8)" stroke="rgba(255,255,255,.2)" stroke-width="3"/><circle id="tArc" cx="18" cy="18" r="16" fill="none" stroke="var(--gold)" stroke-width="3" stroke-dasharray="100.5" stroke-dashoffset="0"/></svg><b id="tNum"></b></div>`:""}</div>
     </div>
     ${mediaHTML(q,revealed)}
@@ -734,6 +742,7 @@ function updateLive(){
   c.textContent = S.phase==="revealed" ? "" : `${n}/${Math.max(on,n)} réponse${n>1?"s":""}`;
   const jk=S.cur.jokers, used=(jk.fifty||0)+(jk.public||0)+(jk.phone||0);
   let j=$("#jkInfo"); if(!j && used && S.phase==="question"){ j=document.createElement("span"); j.id="jkInfo"; j.className="jkinfo"; $("#jk").prepend(j); }
+  const bi=$("#betInfo"); if(bi) bi.textContent = S.cur.special==="bet" && S.cur.bets && S.cur.bets.length ? `🎲 ${S.cur.bets.length} mise${S.cur.bets.length>1?"s":""} · ${S.cur.bets.reduce((a,b)=>a+b,0)} pts en jeu` : "";
   if(j) j.textContent = used ? `Jokers utilisés : ${[jk.fifty?`50:50 ×${jk.fifty}`:"",jk.public?`public ×${jk.public}`:"",jk.phone?`ami ×${jk.phone}`:""].filter(Boolean).join(" · ")}` : "";
 }
 function footer(){
@@ -749,7 +758,7 @@ function footer(){
     f.innerHTML=`<div class="verdict">${good.length} bonne${good.length>1?"s":""} réponse${good.length>1?"s":""} sur ${rows.length}</div>
       ${fast.length?`<div class="fast"><span>⚡ Les plus rapides :</span>${fast.map((e,k)=>`<span class="fp">${avatarHTML(e.p.avatar,e.p.name,52)}<b>${esc(e.p.name)}</b><small>${(e.x.ms/1000).toFixed(1).replace(".",",")} s</small></span>`).join("")}</div>`:""}
       <button class="btn ghost" id="bHub">Tableau des questions</button><button class="btn gold" id="bRk">Classement</button>
-      ${(q.note||"").trim()?`<div class="hostnote" role="note"><span aria-hidden="true">👉</span><div>${esc(q.note.trim()).replace(/\n/g,"<br>")}</div></div>`:""}`;
+      ${specialSummary(q)}${(q.note||"").trim()?`<div class="hostnote" role="note"><span aria-hidden="true">👉</span><div>${esc(q.note.trim()).replace(/\n/g,"<br>")}</div></div>`:""}`;
     $("#bHub").onclick=()=>go(raceDue()?"race":"hub"); $("#bRk").onclick=()=>go("results");
   }
 }
@@ -1101,6 +1110,9 @@ function cfgQuestions(b){
     <div class="qmeta" style="margin-top:2px"><span class="hint" style="font-size:13px;color:var(--cfg-dim)" data-qpts-hint>${ptsHint(q)}</span></div>
     <div class="qmeta"><label class="flab" for="qd${i}">Difficulté</label><select id="qd${i}" data-qdiff>
       ${[[1,"1 – Facile : le public est quasi unanime"],[2,"2 – Moyenne : le public penche nettement"],[3,"3 – Difficile : le public hésite"],[4,"4 – Très difficile : le public peut se tromper"]].map(([v,l])=>`<option value="${v}" ${q.difficulty===v?"selected":""}>${l}</option>`).join("")}</select></div>
+    <div class="qmeta"><label class="flab" for="qs${i}">Question spéciale</label><select id="qs${i}" data-qspec>
+      ${[["","Aucune (question normale)"],["double","×2 Double points : les points comptent double"],["speed","⚡ Bonus rapidité : le plus rapide à trouver gagne un bonus"],["bet","🎲 Quitte ou double : chacun mise une partie de ses points"]].map(([v,l])=>`<option value="${v}" ${q.special===v?"selected":""}>${l}</option>`).join("")}</select>
+      ${q.special==="speed"?`<label class="flab" for="qb${i}" style="margin-left:8px">Bonus</label><input class="inp" id="qb${i}" data-qbonus type="number" min="1" max="50" style="width:80px" value="${q.speedBonus||2}"><span class="flab">point(s)</span>`:""}</div>
     <div class="qmeta"><label class="flab" for="qm${i}">Illustration</label><select id="qm${i}" data-qmode>
       <option value="none" ${q.imgMode==="none"?"selected":""}>Aucune</option><option value="single" ${q.imgMode==="single"?"selected":""}>Une photo pour toute la question</option><option value="answers" ${q.imgMode==="answers"?"selected":""}>Une photo par proposition (2 × 2)</option></select>
       ${q.imgMode==="single"?thumbHTML(q.img,`data-qi`,"Photo de la question","bigthumb",!!q.imgOrig):""}
@@ -1119,6 +1131,8 @@ function cfgQuestions(b){
     card.querySelector("[data-qpts]").oninput=e=>{ const v=e.target.value.trim(); q.points=v===""?null:Math.max(0,Math.min(1000,Math.round(+v)||0)); saveCfg(); card.querySelector("[data-qpts-hint]").textContent=ptsHint(q); };
     card.querySelector("[data-qjc]").oninput=e=>{ const v=e.target.value.trim(); q.jokerCost=v===""?null:Math.max(0,Math.min(1000,Math.round(+v)||0)); saveCfg(); card.querySelector("[data-qpts-hint]").textContent=ptsHint(q); };
     card.querySelector("[data-qdiff]").onchange=e=>{ q.difficulty=+e.target.value; saveCfg(); };
+    card.querySelector("[data-qspec]").onchange=e=>{ q.special=e.target.value; saveCfg(); const y=$(".cbody").scrollTop; cfgQuestions(b); $(".cbody").scrollTop=y; };
+    const qb=card.querySelector("[data-qbonus]"); qb&&(qb.onchange=e=>{ q.speedBonus=Math.max(1,Math.min(50,Math.round(+e.target.value)||2)); saveCfg(); });
     card.querySelector("[data-qmode]").onchange=e=>{ q.imgMode=e.target.value; saveCfg(); cfgQuestions(b); };
     const up=async(file,setter)=>{ if(!file) return; try{ const id=await addImage(file); setter(id); saveCfg(); cfgQuestions(b); }catch(_){ toast("Image illisible : choisissez un fichier JPG, PNG ou WebP."); } };
     card.querySelectorAll("input[data-ai]").forEach(inp=>inp.onchange=e=>{ const j=+inp.dataset.ai, olds=[q.aImgs[j],q.aOrig[j]]; up(e.target.files[0],id=>{ q.aImgs[j]=id; q.aOrig[j]=null; q.aCrop[j]=null; olds.forEach(removeImage); }); });
@@ -1209,8 +1223,8 @@ async function importXlsx(file){
   let rows; try{ rows=await readXlsxRows(file); }catch(e){ notice("Ce fichier Excel n'a pas pu être lu. Enregistrez-le au format .xlsx (Classeur Excel) puis réessayez."); return; }
   const head=rows.shift()||{}, norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim();
   const col=(...keys)=>Object.keys(head).find(k=>keys.some(key=>norm(head[k]).startsWith(key)));
-  const C={sel:col("selection"),ord:col("ordre"),lab:col("nom du bouton"),txt:col("question"),a:col("reponse a"),b:col("reponse b"),c:col("reponse c"),d:col("reponse d"),
-    ok:col("bonne reponse"),diff:col("difficulte"),pts:col("points en jeu"),jc:col("points perdus"),note:col("laius","rebond"),id:col("identifiant")};
+  const C={sel:col("selection"),ord:col("ordre"),lab:col("nom du bouton"),txt:Object.keys(head).find(k=>norm(head[k])==="question")||col("question"),a:col("reponse a"),b:col("reponse b"),c:col("reponse c"),d:col("reponse d"),
+    ok:col("bonne reponse"),diff:col("difficulte"),pts:col("points en jeu"),jc:col("points perdus"),note:col("laius","rebond"),id:col("identifiant"),sp:col("question speciale","speciale","special")};
   if(!C.txt||!C.a||!C.ok){ notice("Colonnes introuvables : le fichier doit contenir au moins « Question », « Réponse A » à « Réponse D » et « Bonne réponse » sur sa première ligne."); return; }
   const num=v=>{ const t=String(v||"").replace(",",".").trim(); return t===""||!isFinite(+t)?null:Math.round(+t); };
   let list=rows.map((r,k)=>({r,k})).filter(({r})=>r[C.txt]&&(!C.sel||/^(oui|o|yes|x|1|vrai|true)$/i.test(r[C.sel]||"")));
@@ -1221,7 +1235,7 @@ async function importXlsx(file){
     const letter=String(r[C.ok]||"").trim().toUpperCase().charAt(0), correct="ABCD".indexOf(letter);
     if(correct<0||!["a","b","c","d"].every(x=>r[C[x]])) bad.push(k+2);
     return {id:old?old.id:(r[C.id]||uid("q")),label:r[C.lab]||"",text:r[C.txt],answers:["a","b","c","d"].map(x=>r[C[x]]||""),correct:Math.max(0,correct),
-      difficulty:Math.max(1,Math.min(4,num(r[C.diff])||2)),points:num(r[C.pts]),jokerCost:num(r[C.jc]),note:r[C.note]||"",
+      difficulty:Math.max(1,Math.min(4,num(r[C.diff])||2)),points:num(r[C.pts]),jokerCost:num(r[C.jc]),note:r[C.note]||"",special:specialFrom(r[C.sp]),speedBonus:old?old.speedBonus:2,
       imgMode:old?old.imgMode:"none",img:old?old.img:null,aImgs:old?old.aImgs:[null,null,null,null],
       imgOrig:old?old.imgOrig:null,imgCrop:old?old.imgCrop:null,aOrig:old?old.aOrig:[null,null,null,null],aCrop:old?old.aCrop:[null,null,null,null]};
   });
@@ -1477,3 +1491,17 @@ async function showSouvenir(){
     <div class="row center"><button class="btn gold" id="spDl">Télécharger (PNG)</button><button class="btn ghost" data-x>Fermer</button></div>`,"Photo souvenir",1100);
   $("#spDl",ov).onclick=()=>downloadCanvas(c,"souvenir-quiz.png"); ov.querySelector("[data-x]").onclick=()=>ov._close();
 }
+
+// after the reveal: who won the speed bonus, what the bets brought
+function specialSummary(q){
+  const r=S&&S.results[q.id]; if(!r||!r.special) return "";
+  const rows=Object.entries(r.rows);
+  if(r.special==="speed"){ const f=rows.find(([,x])=>x.fastest); const p=f&&playerById(f[0]);
+    return `<div class="spsum sp-speed">⚡ ${p?`${avatarHTML(p.avatar,p.name,44,"","jump loop")} <b>${esc(p.name)}</b> a été le plus rapide : +${f[1].bonus} point${f[1].bonus>1?"s":""} de bonus !`:"Personne n'a trouvé : pas de bonus rapidité."}</div>`; }
+  if(r.special==="bet"){ const won=rows.filter(([,x])=>x.bet&&x.ok), lost=rows.filter(([,x])=>x.bet&&!x.ok);
+    const sum=l=>l.reduce((a,[,x])=>a+x.bet,0);
+    return `<div class="spsum sp-bet">🎲 ${won.length||lost.length?`${won.length} mise${won.length>1?"s":""} gagnée${won.length>1?"s":""} (+${sum(won)} pts) · ${lost.length} mise${lost.length>1?"s":""} perdue${lost.length>1?"s":""} (−${sum(lost)} pts)`:"Personne n'a misé sur cette question."}</div>`; }
+  if(r.special==="double") return `<div class="spsum sp-double">×2 Points doublés pour les bonnes réponses !</div>`;
+  return "";
+}
+const specialFrom=v=>{ const t=normName(v||""); return /double point|x2/.test(t)?"double":/rapid|vitesse/.test(t)?"speed":/quitte|mise|pari/.test(t)?"bet":""; };

@@ -526,3 +526,21 @@ img{max-width:100%}
 #clapOv .cl-big{font-size:clamp(110px,14vh,170px)}
 .cwall div{width:auto;min-width:96px;display:flex;flex-direction:column;align-items:center;gap:4px}
 .cwall{gap:18px}
+/* special questions */
+.spbadge{display:inline-flex;align-items:center;justify-content:center;gap:4px;margin-left:8px;min-width:30px;height:26px;padding:0 7px;border-radius:999px;font-family:var(--display);font-weight:800;font-size:16px;color:#1a1240;background:linear-gradient(180deg,#ffd979,var(--gold-2));box-shadow:0 0 12px rgba(242,193,78,.6);flex:none;letter-spacing:0}
+.spbadge.sp-speed{background:linear-gradient(180deg,#7ff0ff,#1aa7d6)}
+.spbadge.sp-bet{background:linear-gradient(180deg,#ffb0e0,#d94f8a);color:#fff}
+.spbadge.big{height:34px;font-size:19px;padding:0 14px}
+.tcode .spbadge{height:22px;font-size:14px;min-width:26px}
+.betinfo{font-family:var(--display);font-weight:700;color:#ffb0e0;font-size:18px}
+.spbanner{display:flex;align-items:center;gap:22px;padding:16px 30px;border-radius:18px;border:3px solid var(--gold);background:linear-gradient(135deg,rgba(242,193,78,.28),rgba(10,12,98,.9));max-width:900px;text-align:left;box-shadow:0 0 40px rgba(242,193,78,.45)}
+.spbanner.sp-speed{border-color:#7ff0ff;background:linear-gradient(135deg,rgba(127,240,255,.25),rgba(10,12,98,.9));box-shadow:0 0 40px rgba(127,240,255,.4)}
+.spbanner.sp-bet{border-color:#ff8fcf;background:linear-gradient(135deg,rgba(255,143,207,.28),rgba(10,12,98,.9));box-shadow:0 0 40px rgba(255,143,207,.45)}
+.spbanner .spi{font-family:var(--display);font-weight:800;font-size:clamp(54px,7vw,96px);color:#fff;line-height:1;text-shadow:0 0 24px rgba(255,255,255,.6)}
+.spbanner .spt{font-family:var(--display);font-weight:800;font-size:clamp(26px,3vw,42px);color:#fff}
+.spbanner .spx{font-size:clamp(16px,1.6vw,22px);color:var(--ice)}
+@media (prefers-reduced-motion:no-preference){ .spbanner{animation:spIn .9s cubic-bezier(.3,1.5,.5,1) both} .spbanner .spi{animation:spPulse 1.2s ease-in-out .9s infinite} }
+@keyframes spIn{from{transform:scale(.3) rotate(-6deg);opacity:0}to{transform:none;opacity:1}}
+@keyframes spPulse{50%{transform:scale(1.15)}}
+.spsum{flex-basis:100%;display:flex;align-items:center;justify-content:center;gap:10px;max-width:1000px;margin:4px auto 0;padding:6px 14px;border-radius:12px;font-family:var(--display);font-weight:700;font-size:clamp(17px,1.6vw,22px);color:#fff;background:rgba(10,12,98,.85);border:2px solid var(--gold)}
+.spsum.sp-speed{border-color:#7ff0ff}.spsum.sp-bet{border-color:#ff8fcf}
